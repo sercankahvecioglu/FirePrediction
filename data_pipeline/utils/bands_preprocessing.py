@@ -6,6 +6,7 @@ import glob
 import pickle
 from rasterio.warp import reproject, Resampling
 from scipy.ndimage import grey_closing
+from geodata_extraction import extract_geospatial_metadata
 
 # resample bands if needed
 def resampling_bands(bands_data, reference_profile, target_resolution): 
@@ -216,39 +217,6 @@ def read_sent2_1c_bands(base_path: str,
         }
     
     return result
-
-#--------------------------------------------------------------------------------
-
-# saving data and profile info
-def save_data_profile(bands_data, path:str, name:str, save_data:bool = True):
-    """
-    Save the stacked bands data and profile
-    
-    Args:
-        bands_data (dict): Result from read_sent2_1c_bands with 'data' and 'profile' keys
-        path (str): Directory path to save files
-        name (str): Base name for the files
-    """
-    os.makedirs(path, exist_ok=True)
-    if save_data == True:
-        # save the stacked bands data
-        np.save(os.path.join(path, f'{name}_bands.npy'), bands_data['data'])
-        
-    # save the profile for the metadata (location etc.)
-    with open(os.path.join(path, f'{name}_geospatial_profile.pkl'), 'wb') as f:
-        pickle.dump(bands_data['profile'], f)
-    
-    # save band names and order information (NOT STRICTLY NEEDED BUT BETTER FOR LATER CLARITY)
-    with open(os.path.join(path, f'{name}_band_info.pkl'), 'wb') as f:
-        band_info = {
-            'band_names': bands_data['band_names'],
-            'band_order': bands_data['band_order']
-        }
-        if 'resampling_info' in bands_data:
-            band_info['resampling_info'] = bands_data['resampling_info']
-        pickle.dump(band_info, f)
-
-    return os.path.join(path, f'{name}_geospatial_profile.pkl')
 
 #--------------------------------------------------------------------------------
 
