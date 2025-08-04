@@ -10,10 +10,10 @@ def extract_geospatial_metadata(country_id, pkl_path, when='pre', resolution=10)
     Extract geospatial metadata from XML and save to pickle file.
     
     Params:
-        country_id (str): the name/id of the country of which to retrieve the metadata
-        pkl_path (str): output folder path
-        when (str): string representing the timing (pre or post) of the image w.r.t. the fire
-        resolution (int): optional argument for what resolution to consider.
+        - country_id (str): the name/id of the country of which to retrieve the metadata
+        - pkl_path (str): output folder path
+        - when (str): string representing the timing (pre or post) of the image w.r.t. the fire
+        - resolution (int): optional argument for what resolution to consider.
         By default we resample all bands to 10m res
 
     Returns:
@@ -71,9 +71,9 @@ def get_real_world_coords(coordy, coordx, pkl_path, tile_size=(256, 256)):
     Get real-world coordinates of tile center from top-left pixel coordinates.
     
     Params:
-        coordy (int): y pixel coordinate of the top left, relative to the full image
-        coordx (int): x pixel coordinate of the top left, relative to the full image
-        pkl_path (str): path of the metadata pickle file path
+        - coordy (int): y pixel coordinate of the top left, relative to the full image
+        - coordx (int): x pixel coordinate of the top left, relative to the full image
+        - pkl_path (str): path of the metadata pickle file path
 
     Returns:
         string of the coordinates

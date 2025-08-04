@@ -2,6 +2,7 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from utils.bands_preprocessing import *
+from utils.geodata_extraction import extract_geospatial_metadata
 
 
 
@@ -35,10 +36,23 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     # Step 1: Extract data from folder and read all 13 bands
     print("\n--- Step 1: Reading all 13 bands data ---")
     all_bands = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B09', 'B10', 'B11', 'B12']
+    # extracting pre bands
     print("Reading pre-fire bands...")
     pre_bands = read_sent2_1c_bands(f'{dataset_name}_pre', all_bands)
-    # saving geospatial profile & band info for later
-    save_data_profile(pre_bands, full_img_path, dataset_name, save_data=False)
+    # saving geospatial profile
+    extract_geospatial_metadata(dataset_name, tiles_input_path)
+
+    # save band info (not 100% necessary, but better for clarity of bands info)
+    with open(os.path.join(tiles_input_path, f'{dataset_name}_band_info.pkl'), 'wb') as f:
+        band_info = {
+            'band_names': bands_data['band_names'],
+            'band_order': bands_data['band_order']
+        }
+        if 'resampling_info' in bands_data:
+            band_info['resampling_info'] = bands_data['resampling_info']
+        pickle.dump(band_info, f)
+
+    # extracting post bands
     print("Reading post-fire bands...")
     post_bands = read_sent2_1c_bands(f'{dataset_name}_post', ['B04', 'B08', 'B8A', 'B12'])
     
@@ -48,6 +62,8 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     print("Band order:", pre_bands['band_order'])
     if 'resampling_info' in pre_bands:
         print("Resampling info:", pre_bands['resampling_info'])
+
+    #------------------------------------------------------------------------------------
     
     # Step 2: Create label map (dNBR) with NDVI masking
     print("\n--- Step 2: Creating label map (dNBR with NDVI masking) ---")
@@ -55,7 +71,7 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     extract_data_labels_from_bands(pre_bands, post_bands, full_img_path, threshold)
     print("✓ dNBR label map with NDVI masking created")
 
-    
+    #------------------------------------------------------------------------------------
     
     # Step 3: Divide into tiles of size (256, 256, 13)
     print("\n--- Step 3: Extracting tiles (256, 256, 13) ---")
@@ -68,6 +84,7 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     extract_tiles_with_padding(dnbr_normmap, dataset_name, (*patch_size, 1), tiles_labels_path)
     print(f"✓ tiles extracted to {tiles_input_path}")
 
+    #------------------------------------------------------------------------------------
 
     # TODO: put band info and profile info into the tiles folder
     
@@ -83,6 +100,8 @@ def full_sentinel2_data_pipeline(dataset_name: str,
         print("❌ Cloud detection failed or no tiles found")
     """
         
+    #------------------------------------------------------------------------------------
+
     # Step 5: Placeholder for vegetation detection model
     # TODO: Implement vegetation detection model that removes tiles without sufficient vegetation
     # This model should:
@@ -92,11 +111,15 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     # - Return statistics similar to cloud detection results
     # Example function call: vegetation_results = patch_vegetation_detection(tiles_input_path, vegetation_threshold=0.3)
 
+    #------------------------------------------------------------------------------------
+
     # Step 6: Placeholder for black pixel filtering
     # TODO: Implement filtering for black tiles (0 or smth like that for all rgb values)
     # - check if pixel is fully black (part of image padding)
     # - if so, discard it
     
+    #------------------------------------------------------------------------------------
+
     # Step 7: Extract NDVI and NDMI for remaining tiles
     print("\n--- Step 6: Extracting NDVI and NDMI for remaining clean tiles ---")
     
