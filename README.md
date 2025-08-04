@@ -1,2 +1,2 @@
 # FirePrediction
-Flame Sentinels Team:
+Flame Sentinels Team
