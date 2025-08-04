@@ -7,6 +7,8 @@ from torchvision.transforms import ToTensor
 import matplotlib.pyplot as plt
 import numpy as np
 import pickle
+from data_pipeline.utils.geodata_extraction import get_real_world_coords
+
 
 class Sent2Dataset(Dataset):
     """
@@ -42,11 +44,20 @@ class Sent2Dataset(Dataset):
 
 
     def __getitem__(self, index):
-        input_path = self.input_list[index]
-        country_id = os.path.basename(input_path).split('_')[0]
-        label_path = self.labels_list[index]
-        # geospatial coords retrieval
-        
+        """Returns: input tensor, output (labeled) tensor, coordinates string"""
 
+        input_path = self.input_list[index]
+        country_id, realcoords = os.path.basename(input_path).split('_tile_')
+        # extract values of relative coordinates
+        coordy, coordx = map(int, realcoords.replace('.npy', '').strip("()").split(", "))
+        # get real-world coords 
+        pkl_path = f"/home/dario/Desktop/imgs_metadata/{country_id}_pre.pkl"
+        coords = get_real_world_coords(coordy, coordx, pkl_path)
+        label_path = self.labels_list[index]
 
         return np.load(input_path), np.load(label_path), coords
+    
+
+    
+
+

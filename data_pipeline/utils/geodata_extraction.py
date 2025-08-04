@@ -59,7 +59,7 @@ def extract_geospatial_metadata(country_id, pkl_path, when='pre', resolution=10)
         'EPSG_CODE': epsg_code
     }
 
-    pkl_path = os.path.join(pkl_path, f"{country_id}_{when}.pkl")
+    pkl_path = os.path.join(pkl_path, f"{country_id}_geoinfo.pkl")
     
     with open(pkl_path, 'wb') as f:
         pickle.dump(metadata, f)
@@ -99,15 +99,16 @@ def get_real_world_coords(coordy, coordx, pkl_path, tile_size=(256, 256)):
     
     return f"{abs(lat):.6f}°{lat_dir}, {abs(lon):.6f}°{lon_dir}"
 
-
+# TODO: remove main() testing
 if __name__ == "__main__":
     # Extract metadata for all datasets
     print("Extracting metadata...")
     for path in glob.glob("/home/dario/Desktop/flame_sentinel_data/DATASETS/*"):
         try:
             country_id, when = os.path.basename(path).split("_")
-            extract_geospatial_metadata(country_id, "/home/dario/Desktop/imgs_metadata", when=when)
-            print(f"✓ Processed {country_id}_{when}")
+            if when == "pre":
+                extract_geospatial_metadata(country_id, "/home/dario/Desktop/imgs_metadata", when=when)
+                print(f"✓ Processed {country_id}_{when}")
         except Exception as e:
             print(f"✗ Failed to process {path}: {e}")
     
@@ -122,7 +123,7 @@ if __name__ == "__main__":
     # extract values of relative coordinates
     coordx, coordy = map(int, coords_str.split(', '))
     # get real-world coords 
-    pkl_path = f"/home/dario/Desktop/imgs_metadata/{country_id}_pre.pkl"
+    pkl_path = f"/home/dario/Desktop/imgs_metadata/{country_id}_geoinfo.pkl"
 
     coords = get_real_world_coords(coordx, coordy, pkl_path)
     print(coords)
