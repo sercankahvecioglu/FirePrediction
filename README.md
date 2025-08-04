@@ -7,4 +7,4 @@ Team Members:
 - Diego Toledo Luque ([@dariocarretta](https://github.com/DitoluT))
 - Dario Carretta ([@dariocarretta](https://github.com/dariocarretta))
 - Ivana Moskova
-- Lior Mayer
+- Lior Mayer ([@LiorM08](https://github.com/LiorM08))
