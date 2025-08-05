@@ -225,11 +225,11 @@ def extract_data_labels_from_bands(pre_bands_data, post_bands_data, output_dir: 
     """
     Create data labels from Sentinel-2 images by considering the dNBR value (with NDVI masking)
     
-    Args:
-        img_list: List of paths to Sentinel-2 Level 1C product directories [pre-fire, post-fire]
-        output_dir: Location where to save the results
-        thresh: threshold of dNBR values to use to create binary map
-        masking: bool param to determine whether to mask to 0 pixels that are not vegetation, using ndvi
+    Params:
+        - img_list: List of paths to Sentinel-2 Level 1C product directories [pre-fire, post-fire]
+        - output_dir: Location where to save the results
+        - thresh: threshold of dNBR values to use to create binary map
+        - masking: bool param to determine whether to mask to 0 pixels that are not vegetation, using ndvi
             or not to do it (as these will be later discarded)
 
     Returns:
@@ -314,11 +314,11 @@ def extract_tiles_with_padding(image, name, tile_size, path):
     """
     Extract tiles using padding strategy to ensure complete coverage.
     
-    Args:
-        image: Input image (H, W, C)
-        name: The name of the location of the image (needed for data organizational purposes)
-        tile_size: Size of each tile (height, width, channels)
-        path: Location where to save tiles
+    Params:
+        - image: Input image (H, W, C)
+        - name: The name of the location of the image (needed for data organizational purposes)
+        - tile_size: Size of each tile (height, width, channels)
+        - path: Location where to save tiles
     """
     os.makedirs(path, exist_ok=True)
 
@@ -348,14 +348,14 @@ def compute_veg_indices(tile_path: str, band_names: list, indices: list = ['ndvi
     """
     Compute vegetation indices (NDVI and/or NDMI) from a single .npy tile file, add them as new channels, and save
     
-    Args:
-        tile_path (str): Path to the .npy tile file
-        band_names (list): List of band names in the order they appear in the tile
-        indices (list): List of indices to compute ('ndvi' and/or 'ndmi')
+    Params:
+        - tile_path (str): Path to the .npy tile file
+        - band_names (list): List of band names in the order they appear in the tile
+        - indices (list): List of indices to compute ('ndvi' and/or 'ndmi')
     
     Returns:
-        numpy.ndarray: Expanded tile data with vegetation indices as additional channels
-        list: Updated band names including the new indices
+        - numpy.ndarray: Expanded tile data with vegetation indices as additional channels
+        - list: Updated band names including the new indices
     """
     # load the tile data
     tile_data = np.load(tile_path)

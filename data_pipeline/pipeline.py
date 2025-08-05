@@ -45,11 +45,11 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     # save band info (not 100% necessary, but better for clarity of bands info)
     with open(os.path.join(tiles_input_path, f'{dataset_name}_band_info.pkl'), 'wb') as f:
         band_info = {
-            'band_names': bands_data['band_names'],
-            'band_order': bands_data['band_order']
+            'band_names': pre_bands['band_names'],
+            'band_order': pre_bands['band_order']
         }
-        if 'resampling_info' in bands_data:
-            band_info['resampling_info'] = bands_data['resampling_info']
+        if 'resampling_info' in pre_bands:
+            band_info['resampling_info'] = pre_bands['resampling_info']
         pickle.dump(band_info, f)
 
     # extracting post bands
@@ -148,7 +148,6 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     #if cloud_results:
     #    print(f"  🔸 Cloudy tiles (moved): {cloud_results['cloudy_dir']}")
     print(f"  🔸 Full image results: {full_img_path}")
-    
 
     # Visualize the heatmap and binary map side-by-side
     fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
