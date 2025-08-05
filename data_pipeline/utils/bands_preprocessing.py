@@ -278,11 +278,11 @@ def extract_data_labels_from_bands(pre_bands_data, post_bands_data, output_dir: 
     # normalize between 0 and 1 to get heatmap of probabilities (?)
     dnbr_img = (dnbr_img - np.min(dnbr_img)) / (np.max(dnbr_img) - np.min(dnbr_img))
 
-    # Apply NDVI masking: set dNBR to 0 where pre-fire NDVI < 0.2 (non veg. areas)
+    # apply NDVI masking: set dNBR to 0 where pre-fire NDVI < 0.2 (non veg. areas)
     if masking:
         dnbr_img[ndvi_imgs[0] < 0.2] = 0
         
-    # Add channel dimension to make it 3D (height, width, 1)
+    # add channel dimension to make it 3D (height, width, 1)
     dnbr_img = dnbr_img[:, :, np.newaxis]
 
     # apply closing operation to get smoother label areas (without low value pixels inside high risk areas)
