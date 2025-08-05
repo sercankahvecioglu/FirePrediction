@@ -15,10 +15,10 @@ class Sent2Dataset(Dataset):
     Class for the creation of a dataset from Sentinel2 images 
 
     Initialization Params:
-        input_data_dir (str): full path for the directory containing input data tensors (in .npy format)
-        labels_dir (str): full path for the directory containing labels tensors (in .npy format)
-        transform (OPTIONAL): transformation to apply to each input image
-        target_transform (OPTIONAL): transformation to apply to each label
+        - input_data_dir (str): full path for the directory containing input data tensors (in .npy format)
+        - labels_dir (str): full path for the directory containing labels tensors (in .npy format)
+        - transform (OPTIONAL): transformation to apply to each input image
+        - target_transform (OPTIONAL): transformation to apply to each label
     """
     def __init__(self, input_data_dir, labels_dir, transform=None, target_transform=None):
         self.input_data_dir = input_data_dir
@@ -29,12 +29,21 @@ class Sent2Dataset(Dataset):
         self.target_transform = target_transform
         # geospatial info part
         self.geoinfo_paths = glob.glob(os.path.join(input_data_dir, "*_geoinfo.pkl"))
+        self.bands_info_paths = glob.glob(os.path.join(input_data_dir, "*_band_info.pkl"))
         self.country_ids = [os.path.basename(path).split('_geoinfo.pkl')[0] for path in self.geoinfo_paths]
         # get pickle data extracted
         self.geoinfo = []
         for path in self.geoinfo_paths:
             with open(path, 'rb') as f:
                 self.geoinfo.append(pickle.load(f))
+        with open(self.bands_info_paths[0], "rb") as f:
+            bands_info = pickle.load(f)
+        self.bands_info = bands_info
+
+        # retrieve indices for required bands (NIR, SWIR1, SWIR2, NDVI, NDMI)
+        required_bands = ['B08', 'B11', 'B12', 'NDVI', 'NDMI']
+        self.band_indices = [bands_info.index(band) for band in required_bands if band in bands_info]
+
         # create dict with pkl info for each country
         self.geodict = dict(zip(self.country_ids, self.geoinfo)) 
 
@@ -54,10 +63,19 @@ class Sent2Dataset(Dataset):
         pkl_path = f"/home/dario/Desktop/imgs_metadata/{country_id}_pre.pkl"
         coords = get_real_world_coords(coordy, coordx, pkl_path)
         label_path = self.labels_list[index]
+        # Load input and select only required bands
+        input_tensor = np.load(input_path)
+        input_tensor = input_tensor[..., self.band_indices]
 
-        return np.load(input_path), np.load(label_path), coords
-    
+        label_tensor = np.load(label_path)
 
-    
+        # convert from [height, width, channels] to [channels, height, width] (neeed for the cnns in the unet)
+        input_tensor = input_tensor.permute(2, 0, 1)
+        label_tensor = label_tensor.permute(2, 0, 1)
+
+        return input_tensor, label_tensor, coords
+
+
+
 
 

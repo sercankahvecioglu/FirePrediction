@@ -1,6 +1,6 @@
 import torch 
 import torch.nn as nn
-from torch.utils.data import DataLoader, TensorDataset
+from torch.utils.data import DataLoader, random_split  # <-- add random_split
 from models.unet import UNet
 import numpy as np
 from PIL import Image
@@ -12,129 +12,28 @@ import glob
 import os
 import pickle
 import matplotlib
+from models.datasets import Sent2Dataset
 
 
+train_dataset = Sent2Dataset("/home/dario/Desktop/FirePrediction/TILES_INPUT_DATA", 
+                             "/home/dario/Desktop/FirePrediction/TILES_LABELS")
+test_dataset = Sent2Dataset("/home/dario/Desktop/FirePrediction/TEST_INPUT_DATA",
+                            "/home/dario/Desktop/FirePrediction/TEST_LABELS")
 
-def get_data(type:str, data_dir:str='/home/dario/Desktop/FlameSentinels/', batch_size:int=16):
-    """
-    Function to obtain the data (for training or testing) from the chosen folders.
+# --- train-val split ---
+val_ratio = 0.2  # 80/20 split
+train_len = int((1 - val_ratio) * len(train_dataset))
+val_len = len(train_dataset) - train_len
+train_subset, val_subset = random_split(train_dataset, [train_len, val_len], generator=torch.Generator().manual_seed(33))
 
-    Args:
-        type: string determining whether it is data for train or test
-        data_dir: the main path where train or test data folders are located
-        batch_size: batch size for the dataloaders
+train_loader = DataLoader(train_subset, batch_size=16, shuffle=True)
+val_loader = DataLoader(val_subset, batch_size=16, shuffle=False)
+# -----------------------
 
-    Returns
-        - train_loader, val_loader, num_channels if selected type is "train"
-        - test_loader, num_channels, filenames if selected type is "test"
+n_channels = len(test_dataset.band_indices)
+test_filenames = test_dataset.input_list
+test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
-
-    """
-
-    # check that type of dataset was selected correctly
-    assert type in ['train', 'test']
-
-    if type == 'train':
-        # folders will begin with "TILES"
-        kw = 'TILES'
-    elif type == 'test':
-        # folders will begin with "TEST"
-        kw = 'TEST'
-
-    input_data_path = os.path.join(data_dir, f'{kw}_INPUT_DATA')
-    labels_path = os.path.join(data_dir, f'{kw}_LABELS')
-
-    # load input data & labels
-    print("Loading input data and labels...")
-    input_files = sorted(glob.glob(os.path.join(input_data_path, '*.npy')))
-    label_files = sorted(glob.glob(os.path.join(labels_path, '*.npy')))
-
-    print(f"Found {len(input_files)} input files and {len(label_files)} label files")
-
-    # put input data into a single numpy array
-    x = np.array([np.load(f) for f in input_files])
-    print(f"Input data shape: {x.shape}")
-
-    # load labels
-    y = np.array([np.load(f) for f in label_files])
-    print(f"Labels shape: {y.shape}")
-
-    # search band info to understand channel organization
-    try:
-        # look for any band info file to understand the channel structure
-        band_info_files = glob.glob(os.path.join(input_data_path, '*_band_info.pkl'))
-        if band_info_files:
-            with open(band_info_files[0], 'rb') as f:
-                band_info = pickle.load(f)
-            print(f"Band information loaded: {band_info['band_names']}")
-            print(f"Total channels: {len(band_info['band_names'])}")
-            band_names = band_info['band_names']
-        else:
-            print("No band info file found, assuming standard order")
-            band_names = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B09', 'B10', 'B11', 'B12', 'NDVI', 'NDMI']
-    except Exception as e:
-        print(f"Could not load band info: {e}")
-        band_names = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B09', 'B10', 'B11', 'B12', 'NDVI', 'NDMI']
-
-
-
-    # extract specific channels for the model
-    # NIR (B08), SWIR1 (B11), SWIR2 NDVI, NDMI
-    try:
-        # find indices of the bands we want
-        b08_idx = band_names.index('B08')  # NIR
-        b11_idx = band_names.index('B11')  # SWIR1
-        b12_idx = band_names.index('B12')  # SWIR1
-        ndvi_idx = band_names.index('NDVI')  # NDVI
-        ndmi_idx = band_names.index('NDMI')  # NDMI
-        
-        selected_indices = [b08_idx, b11_idx, b12_idx, ndvi_idx, ndmi_idx]
-        print(f"Selected channel indices: {selected_indices}")
-        print(f"Selected channels: {[band_names[i] for i in selected_indices]}")
-        
-    except ValueError as e:
-        print(f"Error finding band indices: {e}")
-        print("Using default indices [7, 11, 12, 13, 14")
-        selected_indices = [7, 11, 12, 13, 14]
-
-    # extract selected channels
-    x = x[:, :, :, selected_indices]
-    print(f"Selected bands input data shape: {x.shape}")
-
-    # convert data to torch tensors
-    x = torch.tensor(x, dtype=torch.float32)
-    y = torch.tensor(y, dtype=torch.float32)
-
-    # convert from [num_samples, height, width, channels] to [num_samples, channels, height, width] (neded for the cnns in the unet)
-    x = x.permute(0, 3, 1, 2)
-    y = y.permute(0, 3, 1, 2)
-
-    n_channels = x.shape[1]
-
-    print(x.shape)
-    print(y.shape)
-
-    if type == 'train':
-        # train-val split (80/20)
-        x_train, x_val, y_train, y_val = train_test_split(x, y, test_size=0.2, random_state=33)
-
-        # create datasets and dataloaders
-        train_dataset = TensorDataset(x_train, y_train)
-        val_dataset = TensorDataset(x_val, y_val)
-
-        train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
-        val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=True)
-
-        return train_loader, val_loader, n_channels
-    
-    else:
-        dataset = TensorDataset(x, y)
-        dataloader = DataLoader(dataset, batch_size=batch_size, shuffle=False)
-        
-        # Extract base filenames without extension for test data
-        filenames = [os.path.splitext(os.path.basename(f))[0] for f in input_files]
-
-        return dataloader, n_channels, filenames
 
 # main train loop
 def train_model(model, train_loader, val_loader, criterion, optimizer, device, epochs=10):
@@ -285,13 +184,9 @@ def evaluate_model(model, test_loader, device, filenames, output_dir='/home/dari
 
 #-------------------------------------------------------------------
 
-# train_loader, val_loader, num_channels = get_data('train')
-
-test_loader, num_channels, test_filenames = get_data('test', batch_size=16)
-
 # architecture definition (setting n channels as following input data channels)
-unet_model = UNet(num_channels).to('cuda')
-"""
+unet_model = UNet(n_channels).to('cuda')
+
 
 # optimizer & loss definition
 optimizer = torch.optim.Adam(unet_model.parameters(), lr=0.001)
@@ -300,7 +195,7 @@ device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
 trained_model = train_model(unet_model, train_loader, val_loader, criterion, optimizer, device, 25)
-"""
+
 
 #---------------------------------------------------------------
 
