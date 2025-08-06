@@ -178,4 +178,4 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     }
 
 if __name__ == '__main__':
-    full_sentinel2_data_pipeline('chile') 
+    full_sentinel2_data_pipeline('greece') 

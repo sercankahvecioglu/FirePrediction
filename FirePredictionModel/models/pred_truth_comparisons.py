@@ -38,28 +38,31 @@ def create_prediction_comparison_plots(labels_dir="/home/dario/Desktop/FirePredi
             label_array = np.load(label_file).squeeze()  # Remove extra dimension
             pred_array = np.load(pred_file)
             
-            # Calculate error
-            error_array = np.abs(label_array - pred_array)
-            avg_error = np.mean(error_array)
+            # Calculate error - for multiclass, show misclassification
+            error_array = (label_array != pred_array).astype(float)
+            accuracy = np.mean(label_array == pred_array)
+            
+            # Get number of classes for colormap scaling
+            num_classes = max(int(np.max(label_array)), int(np.max(pred_array))) + 1
             
             # Create three-subplot plot
             fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5))
             
-            # Plot ground truth
-            im1 = ax1.imshow(label_array, cmap='coolwarm', vmin=0, vmax=1)
+            # Plot ground truth with discrete colormap
+            im1 = ax1.imshow(label_array, cmap='viridis', vmin=0, vmax=num_classes-1)
             ax1.set_title('Ground Truth')
             ax1.axis('off')
-            plt.colorbar(im1, ax=ax1, shrink=0.8)
+            plt.colorbar(im1, ax=ax1, shrink=0.8, ticks=range(num_classes))
             
-            # Plot prediction
-            im2 = ax2.imshow(pred_array, cmap='coolwarm', vmin=0, vmax=1)
+            # Plot prediction with discrete colormap
+            im2 = ax2.imshow(pred_array, cmap='viridis', vmin=0, vmax=num_classes-1)
             ax2.set_title('Prediction')
             ax2.axis('off')
-            plt.colorbar(im2, ax=ax2, shrink=0.8)
+            plt.colorbar(im2, ax=ax2, shrink=0.8, ticks=range(num_classes))
             
-            # Plot error in grayscale
-            im3 = ax3.imshow(error_array, cmap='gray', vmin=0, vmax=1)
-            ax3.set_title(f'Error (Avg: {avg_error:.4f})')
+            # Plot misclassification in red/white
+            im3 = ax3.imshow(error_array, cmap='Reds', vmin=0, vmax=1)
+            ax3.set_title(f'Misclassification (Accuracy: {accuracy:.4f})')
             ax3.axis('off')
             plt.colorbar(im3, ax=ax3, shrink=0.8)
             

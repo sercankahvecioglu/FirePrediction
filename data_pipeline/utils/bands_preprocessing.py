@@ -282,9 +282,6 @@ def extract_data_labels_from_bands(pre_bands_data, post_bands_data, output_dir: 
 
     # normalize between 0 and 1 to get heatmap of probabilities 
     #dnbr_img = (dnbr_img - np.min(dnbr_img)) / (np.max(dnbr_img) - np.min(dnbr_img))
-    
-    # add channel dimension to make it 3D (height, width, 1)
-    dnbr_map = dnbr_map[:, :, np.newaxis]
 
     # apply closing operation to get smoother label areas (without low value pixels inside high risk areas)
     dnbr_map = grey_closing(dnbr_map, size=5)
