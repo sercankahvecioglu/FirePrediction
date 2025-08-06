@@ -1,6 +1,7 @@
-# data folders
+# data & results folders
 DATASETS*
 TILES*
 TEST*
 *__pycache__*
 *_full_img_results
+PREDS_VS_LABELS
