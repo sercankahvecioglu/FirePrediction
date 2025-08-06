@@ -119,7 +119,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
 
 #----------------------------------------------------------
 
-def evaluate_model(model, test_loader, device, filenames, output_dir='/home/dario/Desktop/FirePrediction/TEST_PRED_IMGS'):
+def evaluate_model(model, test_loader, device, filenames, output_dir='/home/dario/Desktop/FirePrediction/TEST_PREDS'):
     model.eval()
     all_preds = []
     all_labels = []
@@ -141,23 +141,15 @@ def evaluate_model(model, test_loader, device, filenames, output_dir='/home/dari
 
             # Save each prediction in the batch
             for j, pred in enumerate(preds):
-                # Normalize prediction to 0-1 range
+                # Get raw prediction array
                 pred_array = pred.numpy().squeeze()
                 
-                # Apply colormap (blue to red: 'coolwarm', 'RdBu_r', 'bwr')
-                # Other options: 'viridis', 'plasma', 'inferno', 'magma', 'jet'
-                colormap = matplotlib.colormaps.get_cmap('coolwarm')  # Blue to red colormap
-                colored_pred = colormap(pred_array)
-                
-                # Convert to uint8 (0-255) and remove alpha channel if present
-                colored_pred_uint8 = (colored_pred[:, :, :3] * 255).astype(np.uint8)
-                
-                # Create PIL image and save with original filename
-                img = Image.fromarray(colored_pred_uint8, mode='RGB')
                 # Use batch_idx * batch_size + j to get correct filename index
                 filename_idx = batch_idx * len(preds) + j
                 original_filename = os.path.basename(filenames[filename_idx]).replace('.npy', '')
-                img.save(os.path.join(output_dir, f'{original_filename}_prediction.png'))
+                
+                # Save as .npy file
+                np.save(os.path.join(output_dir, f'{original_filename}_prediction.npy'), pred_array)
 
         all_preds_flat = np.array(all_preds).flatten()
         all_labels_flat = np.array(all_labels).flatten()
