@@ -1,10 +1,8 @@
 import os
 import glob
 import torch
-from torch.utils.data import Dataset, DataLoader
-from torchvision import datasets
-from torchvision.transforms import ToTensor
-import matplotlib.pyplot as plt
+from torch.utils.data import Dataset
+from torchvision.transforms import ToTensor, Normalize, Compose
 import numpy as np
 import pickle
 from data_pipeline.utils.geodata_extraction import get_real_world_coords
@@ -44,9 +42,13 @@ class Sent2Dataset(Dataset):
         required_bands = ['B08', 'B11', 'B12', 'NDVI', 'NDMI']
         # bands_info is a dict idx:band, so we need to find indices where band matches required_bands
         self.band_indices = [idx for idx, band in bands_info['band_order'].items() if band in required_bands]
+        
+        # Separate indices for reflectance bands vs spectral indices
+        self.reflectance_indices = [i for i, idx in enumerate(self.band_indices) if bands_info['band_order'][idx] in ['B08', 'B11', 'B12']]
+        self.spectral_indices = [i for i, idx in enumerate(self.band_indices) if bands_info['band_order'][idx] in ['NDVI', 'NDMI']]
 
         # create dict with pkl info for each country
-        self.geodict = dict(zip(self.country_ids, self.geoinfo)) 
+        self.geodict = dict(zip(self.country_ids, self.geoinfo))
 
     def __len__(self):
         return len(self.input_list)
@@ -74,9 +76,24 @@ class Sent2Dataset(Dataset):
         # convert from [height, width, channels] to [channels, height, width] (neeed for the cnns in the unet)
         input_tensor = input_tensor.permute(2, 0, 1)
         label_tensor = label_tensor.permute(2, 0, 1)
+        
+        # Normalize different band types appropriately
+        # Scale reflectance bands (0-10000) to (0-1)
+        for i in self.reflectance_indices:
+            input_tensor[i] = input_tensor[i] / 10000.0
+        
+        # Clip and scale spectral indices (-1 to 1) to (0-1)
+        for i in self.spectral_indices:
+            input_tensor[i] = torch.clamp(input_tensor[i], -1, 1)
+            input_tensor[i] = (input_tensor[i] + 1) / 2.0
+        
+        # Apply transforms if provided
+        if self.transform:
+            input_tensor = self.transform(input_tensor)
+        if self.target_transform:
+            label_tensor = self.target_transform(label_tensor)
 
         return input_tensor, label_tensor, coords
-
 
 
 
