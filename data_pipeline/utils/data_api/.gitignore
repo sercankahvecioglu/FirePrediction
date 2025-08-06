@@ -1,0 +1,13 @@
+.DS_Store
+.env
+*.env
+*.env.*
+__pycache__
+*.pyc
+*.pyo
+
+data/
+data_pkl/
+testing/copied_xml_files/
+*.ipynb_checkpoints
+testing/data_API/
