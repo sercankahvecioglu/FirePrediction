@@ -275,30 +275,25 @@ def extract_data_labels_from_bands(pre_bands_data, post_bands_data, output_dir: 
     # get final dnbr image
     dnbr_img = nbr_imgs[0] - nbr_imgs[1]
     
-    # normalize between 0 and 1 to get heatmap of probabilities (?)
-    dnbr_img = (dnbr_img - np.min(dnbr_img)) / (np.max(dnbr_img) - np.min(dnbr_img))
-
-    # apply NDVI masking: set dNBR to 0 where pre-fire NDVI < 0.2 (non veg. areas)
+    # apply masking: we don't care about pixel values with no significant change in NBR between pre- and post-
     if masking:
-        dnbr_img[ndvi_imgs[0] < 0.2] = 0
-        
+        # Create a binary map in one step, without modifying dnbr_img
+        dnbr_map = np.where(dnbr_img < 0.2, 0, np.where(dnbr_img < 0.4, 1, 2))
+
+    # normalize between 0 and 1 to get heatmap of probabilities 
+    #dnbr_img = (dnbr_img - np.min(dnbr_img)) / (np.max(dnbr_img) - np.min(dnbr_img))
+    
     # add channel dimension to make it 3D (height, width, 1)
-    dnbr_img = dnbr_img[:, :, np.newaxis]
+    dnbr_map = dnbr_map[:, :, np.newaxis]
 
     # apply closing operation to get smoother label areas (without low value pixels inside high risk areas)
-    dnbr_img = grey_closing(dnbr_img, size=5)
-
-    # get also the binary map if needed, with a threshold
-    dnbr_map = np.where(dnbr_img > thresh, 1, 0)
+    dnbr_map = grey_closing(dnbr_map, size=5)
 
     # save this data
     os.makedirs(output_dir, exist_ok=True)
 
-
-
-    # Save as numpy files
-    np.save(os.path.join(output_dir, 'dnbr_normalized.npy'), dnbr_img)
-    np.save(os.path.join(output_dir, 'dnbr_binary_map.npy'), dnbr_map)
+    # Save as numpy file
+    np.save(os.path.join(output_dir, 'dnbr_normalized.npy'), dnbr_map)
 
     print("Data saved successfully!")
     print(f"Files saved in '{output_dir}' directory:")
