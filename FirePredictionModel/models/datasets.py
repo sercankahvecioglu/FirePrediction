@@ -42,11 +42,11 @@ class Sent2Dataset(Dataset):
 
         # retrieve indices for required bands (NIR, SWIR1, SWIR2, NDVI, NDMI)
         required_bands = ['B08', 'B11', 'B12', 'NDVI', 'NDMI']
-        self.band_indices = [bands_info.index(band) for band in required_bands if band in bands_info]
+        # bands_info is a dict idx:band, so we need to find indices where band matches required_bands
+        self.band_indices = [idx for idx, band in bands_info['band_order'].items() if band in required_bands]
 
         # create dict with pkl info for each country
         self.geodict = dict(zip(self.country_ids, self.geoinfo)) 
-
 
     def __len__(self):
         return len(self.input_list)
@@ -59,15 +59,17 @@ class Sent2Dataset(Dataset):
         country_id, realcoords = os.path.basename(input_path).split('_tile_')
         # extract values of relative coordinates
         coordy, coordx = map(int, realcoords.replace('.npy', '').strip("()").split(", "))
-        # get real-world coords 
-        pkl_path = f"/home/dario/Desktop/imgs_metadata/{country_id}_pre.pkl"
-        coords = get_real_world_coords(coordy, coordx, pkl_path)
+        # get real-world coords from geoinfo dict
+        geoinfo = self.geodict[country_id]
+        coords = get_real_world_coords(coordy, coordx, geoinfo)
         label_path = self.labels_list[index]
         # Load input and select only required bands
         input_tensor = np.load(input_path)
         input_tensor = input_tensor[..., self.band_indices]
 
         label_tensor = np.load(label_path)
+
+        input_tensor, label_tensor = torch.tensor(input_tensor), torch.tensor(label_tensor)
 
         # convert from [height, width, channels] to [channels, height, width] (neeed for the cnns in the unet)
         input_tensor = input_tensor.permute(2, 0, 1)

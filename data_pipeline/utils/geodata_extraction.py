@@ -5,12 +5,13 @@ import os
 import glob
 from pyproj import Transformer
 
-def extract_geospatial_metadata(country_id, pkl_path, when='pre', resolution=10):
+def extract_geospatial_metadata(country_id, base_path, pkl_path, when='pre', resolution=10):
     """
     Extract geospatial metadata from XML and save to pickle file.
     
     Params:
         - country_id (str): the name/id of the country of which to retrieve the metadata
+        - base_path (str): path of DATASETS folder
         - pkl_path (str): output folder path
         - when (str): string representing the timing (pre or post) of the image w.r.t. the fire
         - resolution (int): optional argument for what resolution to consider.
@@ -20,7 +21,7 @@ def extract_geospatial_metadata(country_id, pkl_path, when='pre', resolution=10)
         metadata (dict): dictionary with necessary metadata for coordinate conversion
     """
     try:
-        xml_path = glob.glob(f"/home/dario/Desktop/flame_sentinel_data/DATASETS/{country_id}_{when}/GRANULE/*/MTD_TL.xml")[0]
+        xml_path = glob.glob(os.path.join(base_path, f"{country_id}_{when}/GRANULE/*/MTD_TL.xml"))[0]
     except IndexError:
         raise FileNotFoundError(f"MTD_TL.xml not found for {country_id}_{when}")
 
@@ -66,37 +67,42 @@ def extract_geospatial_metadata(country_id, pkl_path, when='pre', resolution=10)
     
     return metadata
 
-def get_real_world_coords(coordy, coordx, pkl_path, tile_size=(256, 256)):
+def get_real_world_coords(coordy, coordx, metadata=None, pkl_path=None, tile_size=(256, 256)):
     """
     Get real-world coordinates of tile center from top-left pixel coordinates.
     
     Params:
         - coordy (int): y pixel coordinate of the top left, relative to the full image
         - coordx (int): x pixel coordinate of the top left, relative to the full image
-        - pkl_path (str): path of the metadata pickle file path
+        - metadata (dict, optional): geoinfo dictionary (preferred)
+        - pkl_path (str, optional): path of the metadata pickle file (if dict not provided)
+        - tile_size (tuple): size of the tile (default (256, 256))
 
     Returns:
         string of the coordinates
     """
-    with open(pkl_path, 'rb') as f:
-        metadata = pickle.load(f)
-    
+    if metadata is None:
+        if pkl_path is None:
+            raise ValueError("Either metadata dict or pkl_path must be provided.")
+        with open(pkl_path, 'rb') as f:
+            metadata = pickle.load(f)
+
     # Calculate center pixel coordinates
     center_y = coordy + tile_size[0] // 2
     center_x = coordx + tile_size[1] // 2
-    
+
     # Transform to UTM then to WGS84
     utm_x = metadata['ULX'] + (center_x * metadata['XDIM'])
     utm_y = metadata['ULY'] + (center_y * metadata['YDIM'])
-    
+
     transformer = Transformer.from_crs(
         f"EPSG:{metadata['EPSG_CODE']}", "EPSG:4326", always_xy=True
     )
     lon, lat = transformer.transform(utm_x, utm_y)
-    
+
     lat_dir = 'N' if lat >= 0 else 'S'
     lon_dir = 'E' if lon >= 0 else 'W'
-    
+
     return f"{abs(lat):.6f}°{lat_dir}, {abs(lon):.6f}°{lon_dir}"
 
 # TODO: remove main() testing
@@ -107,7 +113,7 @@ if __name__ == "__main__":
         try:
             country_id, when = os.path.basename(path).split("_")
             if when == "pre":
-                extract_geospatial_metadata(country_id, "/home/dario/Desktop/imgs_metadata", when=when)
+                extract_geospatial_metadata(country_id, "/home/dario/Desktop/FirePrediction/DATASETS", "/home/dario/Desktop/imgs_metadata", when=when)
                 print(f"✓ Processed {country_id}_{when}")
         except Exception as e:
             print(f"✗ Failed to process {path}: {e}")

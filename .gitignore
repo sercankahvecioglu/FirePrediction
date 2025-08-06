@@ -2,3 +2,5 @@
 DATASETS*
 TILES*
 TEST*
+*__pycache__*
+*_full_img_results

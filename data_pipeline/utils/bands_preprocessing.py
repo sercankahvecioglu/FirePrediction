@@ -6,7 +6,7 @@ import glob
 import pickle
 from rasterio.warp import reproject, Resampling
 from scipy.ndimage import grey_closing
-from geodata_extraction import extract_geospatial_metadata
+from .geodata_extraction import extract_geospatial_metadata
 
 # resample bands if needed
 def resampling_bands(bands_data, reference_profile, target_resolution): 
@@ -363,7 +363,6 @@ def compute_veg_indices(tile_path: str, band_names: list, indices: list = ['ndvi
     # Check if vegetation indices are already present
     expected_bands_with_indices = len(band_names) + len(indices)
     if tile_data.shape[2] >= expected_bands_with_indices:
-        print(f"Vegetation indices already present in {tile_path} (has {tile_data.shape[2]} bands, expected {len(band_names)} original bands)")
         # Return existing data with updated band names
         updated_band_names = band_names + [idx.upper() for idx in indices]
         return tile_data, updated_band_names
