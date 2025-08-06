@@ -8,7 +8,7 @@ from utils.geodata_extraction import extract_geospatial_metadata
 
 # full processing pipeline to get all the tiles data needed (chosen bands, ndvi, ndmi, labels in [0, 1])
 def full_sentinel2_data_pipeline(dataset_name: str, 
-                                   base_path: str = '/home/dario/Desktop/FlameSentinels',
+                                   base_path: str = '/home/dario/Desktop/FirePrediction',
                                    patch_size: tuple = (256, 256),
                                    threshold: float = 0.6,
                                    cloud_threshold: float = 0.6):
@@ -32,6 +32,9 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     # Output patch directories
     tiles_input_path = os.path.join(base_path, 'TILES_INPUT_DATA')
     tiles_labels_path = os.path.join(base_path, 'TILES_LABELS')
+
+    os.makedirs(tiles_input_path, exist_ok=True)
+    os.makedirs(tiles_labels_path, exist_ok=True)
     
     # Step 1: Extract data from folder and read all 13 bands
     print("\n--- Step 1: Reading all 13 bands data ---")
@@ -40,7 +43,8 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     print("Reading pre-fire bands...")
     pre_bands = read_sent2_1c_bands(f'{dataset_name}_pre', all_bands)
     # saving geospatial profile
-    extract_geospatial_metadata(dataset_name, tiles_input_path)
+    print("Saving geospatial information...\n")
+    extract_geospatial_metadata(dataset_name, os.path.join(base_path, "DATASETS"), tiles_input_path)
 
     # save band info (not 100% necessary, but better for clarity of bands info)
     with open(os.path.join(tiles_input_path, f'{dataset_name}_band_info.pkl'), 'wb') as f:
@@ -57,11 +61,15 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     post_bands = read_sent2_1c_bands(f'{dataset_name}_post', ['B04', 'B08', 'B8A', 'B12'])
     
     # Print information about the result
-    print("Band names:", pre_bands['band_names'])
+    print("Band names:", pre_bands['band_names']) 
     print("Data shape:", pre_bands['data'].shape)
     print("Band order:", pre_bands['band_order'])
     if 'resampling_info' in pre_bands:
         print("Resampling info:", pre_bands['resampling_info'])
+
+    bands_data = pre_bands['data']  # Use pre-fire data for tiles
+    # Get band names for vegetation index computation
+    band_names = pre_bands['band_names']
 
     #------------------------------------------------------------------------------------
     
@@ -71,14 +79,19 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     extract_data_labels_from_bands(pre_bands, post_bands, full_img_path, threshold)
     print("✓ dNBR label map with NDVI masking created")
 
+    # free up ram space 
+    del post_bands, pre_bands
+
     #------------------------------------------------------------------------------------
     
     # Step 3: Divide into tiles of size (256, 256, 13)
     print("\n--- Step 3: Extracting tiles (256, 256, 13) ---")
-    bands_data = pre_bands['data']  # Use pre-fire data for tiles
     num_bands = len(all_bands)
     extract_tiles_with_padding(bands_data, dataset_name, (*patch_size, num_bands), tiles_input_path)
     
+    # free up ram
+    del bands_data
+
     # Also extract label tiles
     dnbr_normmap = np.load(os.path.join(full_img_path, 'dnbr_normalized.npy'))
     extract_tiles_with_padding(dnbr_normmap, dataset_name, (*patch_size, 1), tiles_labels_path)
@@ -129,9 +142,6 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     if remaining_patch_files:
         print(f"Processing {len(remaining_patch_files)} remaining clean tiles...")
         
-        # Get band names for vegetation index computation
-        band_names = pre_bands['band_names']
-        
         # Process NDVI & NDMI tiles
         process_tiles_directory_with_indices(tiles_input_path, band_names)
         print(f"✓ NDVI & NDMI values added to the tiles in {tiles_input_path}")
@@ -179,4 +189,4 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     }
 
 if __name__ == '__main__':
-    full_sentinel2_data_pipeline('chile') 
+    full_sentinel2_data_pipeline('greece') 
