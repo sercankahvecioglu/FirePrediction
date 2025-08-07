@@ -9,7 +9,7 @@ from models.unet import UNet
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
-from sklearn.metrics import mean_squared_error, mean_absolute_error
+from sklearn.metrics import mean_squared_error, mean_absolute_error, accuracy_score, f1_score
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import glob
@@ -19,7 +19,155 @@ import matplotlib
 from models.datasets import Sent2Dataset
 
 
+# main train loop
+def train_model(model, train_loader, val_loader, criterion, optimizer, device, epochs=10):
+    model.to(device)
+    best_val_loss = float('inf')
 
+    not_improved_epochs = 0
+
+    for epoch in range(epochs):
+
+        # put model in training mode (needed for batch normalization)
+        model.train()
+        train_loss = 0.0
+        all_preds = []
+        all_labels = []
+
+        for x, y, coords in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} (Train)"):
+            x, y = x.to(device), y.to(device).long().squeeze(1)  # Remove channel dimension
+
+            optimizer.zero_grad()
+            # output probabilities
+            outputs = model(x)
+
+            # Apply argmax along channel dimension (dim=1) to get predicted classes
+            preds = torch.argmax(outputs, dim=1)
+            # loss calculation - use raw logits, not predictions
+            loss = criterion(outputs, y)
+            # backpropagation
+            loss.backward()
+            # gradient descent
+            optimizer.step()
+
+            train_loss += loss.item()
+
+            preds = preds.cpu().detach()
+            all_preds.extend(preds.numpy())
+            all_labels.extend(y.cpu().numpy())
+
+        # epoch training metrics calculation
+        train_loss /= len(train_loader)
+        
+        # Flatten arrays for metrics calculation
+        all_preds_flat = np.array(all_preds).flatten()
+        all_labels_flat = np.array(all_labels).flatten()
+        
+        train_acc = accuracy_score(all_labels_flat, all_preds_flat)
+        train_f1 = f1_score(all_labels_flat, all_preds_flat, average='weighted')
+
+        # validation phase
+        model.eval()
+        val_loss = 0.0
+        all_val_preds = []
+        all_val_labels = []
+
+        # no update of parameters
+        with torch.no_grad():
+            for x, y, coords in tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} (Val)"):
+                x, y = x.to(device), y.to(device).long().squeeze(1)  # Remove channel dimension
+
+                outputs = model(x)
+                preds = torch.argmax(outputs, dim=1)
+                loss = criterion(outputs, y)
+
+                val_loss += loss.item()
+
+                preds = preds.cpu().detach()
+                all_val_preds.extend(preds.numpy())
+                all_val_labels.extend(y.cpu().numpy())
+
+        # validation metrics calculation
+        val_loss /= len(val_loader)
+        
+        # Flatten arrays for metrics calculation
+        all_val_preds_flat = np.array(all_val_preds).flatten()
+        all_val_labels_flat = np.array(all_val_labels).flatten()
+        
+        val_acc = accuracy_score(all_val_labels_flat, all_val_preds_flat)
+        val_f1 = f1_score(all_val_labels_flat, all_val_preds_flat, average='weighted')
+
+        # print results update
+        print(f"Epoch {epoch + 1}:")
+        print(f"  Train Loss: {train_loss:.4f} | Acc: {train_acc:.4f} | F1: {train_f1:.4f}")
+        print(f"  Val Loss: {val_loss:.4f}   | Acc: {val_acc:.4f} | F1: {val_f1:.4f}\n")
+
+        # saving best model at each epoch, if val loss improves
+        if val_loss < best_val_loss:
+            not_improved_epochs = 0
+            best_val_loss = val_loss
+            # Save the entire model (architecture + weights)
+            torch.save(model.state_dict(), f"/home/dario/Desktop/FirePrediction/best_prediction_model.pth")
+            print(f"  --> Saved best model (val_loss improved)\n")
+        else: 
+            not_improved_epochs += 1
+            if not_improved_epochs == 5:
+                print(f"Model training stopped early due to no improvement for f{not_improved_epochs} epochs.\n")
+                return model
+        
+
+
+    print("\nTraining completed!")
+    return model
+
+#----------------------------------------------------------
+
+def evaluate_model(model, test_loader, device, filenames, output_dir='/home/dario/Desktop/FirePrediction/TEST_PREDS'):
+    model.eval()
+    all_preds = []
+    all_labels = []
+    
+    sample_idx = 0
+
+    with torch.no_grad():
+        for batch_idx, (x, y, coords) in enumerate(tqdm(test_loader, desc="Testing")):
+            
+            x, y = x.to(device), y.to(device).long().squeeze(1)  # Remove channel dimension
+
+            outputs = model(x)
+            # Apply argmax along channel dimension to get class predictions
+            preds = torch.argmax(outputs, dim=1)
+            preds = preds.cpu().detach()
+
+            all_preds.extend(preds.numpy())
+            all_labels.extend(y.cpu().numpy())
+
+            os.makedirs(output_dir, exist_ok=True)
+
+            # Save each prediction in the batch
+            for j, pred in enumerate(preds):
+                # Get raw prediction array
+                pred_array = pred.numpy().squeeze()
+                
+                # Use batch_idx * batch_size + j to get correct filename index
+                filename_idx = batch_idx * len(preds) + j
+                original_filename = os.path.basename(filenames[filename_idx]).replace('.npy', '')
+                
+                # Save as .npy file
+                np.save(os.path.join(output_dir, f'{original_filename}_prediction.npy'), pred_array)
+
+        all_preds_flat = np.array(all_preds).flatten()
+        all_labels_flat = np.array(all_labels).flatten()
+
+    # Use classification metrics instead of regression metrics
+    acc = accuracy_score(all_labels_flat, all_preds_flat)
+    f1 = f1_score(all_labels_flat, all_preds_flat, average='weighted')
+
+    print(f"\nTest Accuracy: {acc:.4f} | Test F1: {f1:.4f}")
+
+
+
+"""
 # main train loop
 def train_model(model, train_loader, val_loader, criterion, optimizer, device, epochs=10):
     model.to(device)
@@ -160,7 +308,7 @@ def evaluate_model(model, test_loader, device, filenames, output_dir='/home/dari
     print(f"\nTest MAE: {mae:.4f} | Test MSE: {mse:.4f}")
 
 #-------------------------------------------------------------------
-
+"""
 
 train_dataset = Sent2Dataset("/home/dario/Desktop/FirePrediction/TILES_INPUT_DATA", 
                              "/home/dario/Desktop/FirePrediction/TILES_LABELS")
@@ -184,20 +332,18 @@ test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
 
 # architecture definition (setting n channels as following input data channels)
-unet_model = UNet(n_channels).to('cuda')
-
+unet_model = UNet(n_channels, out_channels=3).to('cuda')
 """
 # optimizer & loss definition
 optimizer = torch.optim.Adam(unet_model.parameters(), lr=0.001)
-criterion = nn.MSELoss()
+criterion = nn.CrossEntropyLoss()
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 
 trained_model = train_model(unet_model, train_loader, val_loader, criterion, optimizer, device, 25)
 
-"""
 #---------------------------------------------------------------
-
+"""
 # to reload previous model
 unet_model.load_state_dict(torch.load('/home/dario/Desktop/FirePrediction/best_prediction_model.pth', weights_only=True))
 

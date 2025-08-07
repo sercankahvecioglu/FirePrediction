@@ -43,8 +43,9 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     print("Reading pre-fire bands...")
     pre_bands = read_sent2_1c_bands(f'{dataset_name}_pre', all_bands)
     # saving geospatial profile
-    print("Saving geospatial information...\n")
+    print("Saving geospatial information...")
     extract_geospatial_metadata(dataset_name, os.path.join(base_path, "DATASETS"), tiles_input_path)
+    print("Geospatial information saved successfully!\n")
 
     # save band info (not 100% necessary, but better for clarity of bands info)
     with open(os.path.join(tiles_input_path, f'{dataset_name}_band_info.pkl'), 'wb') as f:
@@ -73,11 +74,11 @@ def full_sentinel2_data_pipeline(dataset_name: str,
 
     #------------------------------------------------------------------------------------
     
-    # Step 2: Create label map (dNBR) with NDVI masking
-    print("\n--- Step 2: Creating label map (dNBR with NDVI masking) ---")
+    # Step 2: Create label map (dNBR)
+    print("\n--- Step 2: Creating label map (dNBR) ---")
     os.makedirs(full_img_path, exist_ok=True)
     extract_data_labels_from_bands(pre_bands, post_bands, full_img_path, threshold)
-    print("✓ dNBR label map with NDVI masking created")
+    print("✓ dNBR label map created")
 
     # free up ram space 
     del post_bands, pre_bands
@@ -159,25 +160,13 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     #    print(f"  🔸 Cloudy tiles (moved): {cloud_results['cloudy_dir']}")
     print(f"  🔸 Full image results: {full_img_path}")
 
-    # Visualize the heatmap and binary map side-by-side
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 5))
-    
     # Display dNBR heatmap
-    im1 = ax1.imshow(dnbr_normmap[:, :, 0], cmap='coolwarm', vmin=0, vmax=1)
-    ax1.set_title('dNBR Heatmap (NDVI Masked)', fontsize=12)
-    ax1.axis('off')
-    plt.colorbar(im1, ax=ax1, fraction=0.046, pad=0.04)
-
-    dnbr_map = dnbr_normmap > 0.6
-    
-    # Display binary map
-    im2 = ax2.imshow(dnbr_map[:, :, 0], cmap='gray', vmin=0, vmax=1)
-    ax2.set_title(f'dNBR Binary Map (NDVI Masked, thresh={0.6})', fontsize=12)
-    ax2.axis('off')
-    plt.colorbar(im2, ax=ax2, fraction=0.046, pad=0.04)
-    
-    plt.tight_layout()
+    ax = plt.imshow(dnbr_normmap[:, :, 0], cmap='coolwarm')
+    plt.title('dNBR Heatmap', fontsize=12)
+    plt.colorbar()
+    plt.axis('off')
     plt.show()
+    plt.savefig(os.path.join(full_img_path, 'dnbr_heatmap.png'))
 
 
     return {
