@@ -8,3 +8,6 @@ PREDS_VS_LABELS
 data
 data_pkl
 copied_xml_files
+data_pipeline/utils/.DS_Store
+data_pipeline/.DS_Store
+data_pipeline/utils/data_api/.env
