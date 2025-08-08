@@ -5,3 +5,6 @@ TEST*
 *__pycache__*
 *_full_img_results
 PREDS_VS_LABELS
+data
+data_pkl
+copied_xml_files
