@@ -1,10 +1,6 @@
-import sys
-import os
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
-
 import torch 
 import torch.nn as nn
-from torch.utils.data import DataLoader, random_split  # <-- add random_split
+from torch.utils.data import DataLoader, random_split  
 from models.unet import UNet
 import numpy as np
 from PIL import Image
@@ -17,6 +13,7 @@ import os
 import pickle
 import matplotlib
 from models.datasets import Sent2Dataset
+from models.geodata_extraction import *
 
 
 # main train loop
@@ -41,10 +38,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
             # output probabilities
             outputs = model(x)
 
-            # Apply argmax along channel dimension (dim=1) to get predicted classes
+            # apply argmax along channel dimension (dim=1) to get predicted classes
             preds = torch.argmax(outputs, dim=1)
-            # loss calculation - use raw logits, not predictions
+            
+            # loss calculation
             loss = criterion(outputs, y)
+            
             # backpropagation
             loss.backward()
             # gradient descent
@@ -114,6 +113,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
             if not_improved_epochs == 5:
                 print(f"Model training stopped early due to no improvement for f{not_improved_epochs} epochs.\n")
                 return model
+                
         
 
 
@@ -135,8 +135,9 @@ def evaluate_model(model, test_loader, device, filenames, output_dir='/home/dari
             x, y = x.to(device), y.to(device).long().squeeze(1)  # Remove channel dimension
 
             outputs = model(x)
-            # Apply argmax along channel dimension to get class predictions
+            
             preds = torch.argmax(outputs, dim=1)
+            
             preds = preds.cpu().detach()
 
             all_preds.extend(preds.numpy())
@@ -159,156 +160,11 @@ def evaluate_model(model, test_loader, device, filenames, output_dir='/home/dari
         all_preds_flat = np.array(all_preds).flatten()
         all_labels_flat = np.array(all_labels).flatten()
 
-    # Use classification metrics instead of regression metrics
+    # metrics
     acc = accuracy_score(all_labels_flat, all_preds_flat)
     f1 = f1_score(all_labels_flat, all_preds_flat, average='weighted')
 
     print(f"\nTest Accuracy: {acc:.4f} | Test F1: {f1:.4f}")
-
-
-
-"""
-# main train loop
-def train_model(model, train_loader, val_loader, criterion, optimizer, device, epochs=10):
-    model.to(device)
-    best_val_loss = float('inf')
-
-    not_improved_epochs = 0
-
-    for epoch in range(epochs):
-
-        # put model in training mode (needed for batch normalization)
-        model.train()
-        train_loss = 0.0
-        all_preds = []
-        all_labels = []
-
-        for x, y, coords in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} (Train)"):
-            x, y = x.to(device), y.to(device).float()
-
-            optimizer.zero_grad()
-            # output probabilities
-            outputs = model(x)
-            # loss calculation
-            loss = criterion(outputs, y)
-            # backpropagation
-            loss.backward()
-            # gradient descent
-            optimizer.step()
-
-            train_loss += loss.item()
-
-            outputs = outputs.cpu().detach()
-            all_preds.extend(outputs.numpy())
-            all_labels.extend(y.cpu().numpy())
-
-        # epoch training metrics calculation
-        train_loss /= len(train_loader)
-        
-        # Flatten arrays for metrics calculation
-        all_preds_flat = np.array(all_preds).flatten()
-        all_labels_flat = np.array(all_labels).flatten()
-        
-        train_mse = mean_squared_error(all_labels_flat, all_preds_flat)
-        train_mae = mean_absolute_error(all_labels_flat, all_preds_flat)
-
-        # validation phase
-        model.eval()
-        val_loss = 0.0
-        all_val_preds = []
-        all_val_labels = []
-
-        # no update of parameters
-        with torch.no_grad():
-            for x, y, coords in tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} (Val)"):
-                x, y = x.to(device), y.to(device).float()
-
-                outputs = model(x)
-                loss = criterion(outputs, y)
-
-                val_loss += loss.item()
-
-                outputs = outputs.cpu().detach()
-                all_val_preds.extend(outputs.numpy())
-                all_val_labels.extend(y.cpu().numpy())
-
-        # validation metrics calculation
-        val_loss /= len(val_loader)
-        
-        # Flatten arrays for metrics calculation
-        all_val_preds_flat = np.array(all_val_preds).flatten()
-        all_val_labels_flat = np.array(all_val_labels).flatten()
-        
-        val_mse = mean_squared_error(all_val_labels_flat, all_val_preds_flat)
-        val_mae = mean_absolute_error(all_val_labels_flat, all_val_preds_flat)
-
-        # print results update
-        print(f"Epoch {epoch + 1}:")
-        print(f"  Train Loss: {train_loss:.4f} | MSE: {train_mse:.4f} | MAE: {train_mae:.4f}")
-        print(f"  Val Loss: {val_loss:.4f}   | MSE: {val_mse:.4f} | MAE: {val_mae:.4f}\n")
-
-        # saving best model at each epoch, if val loss improves
-        if val_loss < best_val_loss:
-            not_improved_epochs = 0
-            best_val_loss = val_loss
-            # Save the entire model (architecture + weights)
-            torch.save(model.state_dict(), f"/home/dario/Desktop/FirePrediction/best_prediction_model.pth")
-            print(f"  --> Saved best model (val_loss improved)\n")
-        else: 
-            not_improved_epochs += 1
-            if not_improved_epochs == 5:
-                print(f"Model training stopped early due to no improvement for f{not_improved_epochs} epochs.\n")
-                return model
-        
-
-
-    print("\nTraining completed!")
-    return model
-
-#----------------------------------------------------------
-
-def evaluate_model(model, test_loader, device, filenames, output_dir='/home/dario/Desktop/FirePrediction/TEST_PREDS'):
-    model.eval()
-    all_preds = []
-    all_labels = []
-    
-    sample_idx = 0
-
-    with torch.no_grad():
-        for batch_idx, (x, y, coords) in enumerate(tqdm(test_loader, desc="Testing")):
-            
-            x, y = x.to(device), y.to(device).float()
-
-            outputs = model(x).squeeze(1)
-            preds = outputs.cpu().detach()
-
-            all_preds.extend(preds.numpy())
-            all_labels.extend(y.cpu().numpy())
-
-            os.makedirs(output_dir, exist_ok=True)
-
-            # Save each prediction in the batch
-            for j, pred in enumerate(preds):
-                # Get raw prediction array
-                pred_array = pred.numpy().squeeze()
-                
-                # Use batch_idx * batch_size + j to get correct filename index
-                filename_idx = batch_idx * len(preds) + j
-                original_filename = os.path.basename(filenames[filename_idx]).replace('.npy', '')
-                
-                # Save as .npy file
-                np.save(os.path.join(output_dir, f'{original_filename}_prediction.npy'), pred_array)
-
-        all_preds_flat = np.array(all_preds).flatten()
-        all_labels_flat = np.array(all_labels).flatten()
-
-    mse = mean_squared_error(all_labels_flat, all_preds_flat)
-    mae = mean_absolute_error(all_labels_flat, all_preds_flat)
-
-    print(f"\nTest MAE: {mae:.4f} | Test MSE: {mse:.4f}")
-
-#-------------------------------------------------------------------
-"""
 
 train_dataset = Sent2Dataset("/home/dario/Desktop/FirePrediction/TILES_INPUT_DATA", 
                              "/home/dario/Desktop/FirePrediction/TILES_LABELS")
@@ -334,16 +190,39 @@ test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 # architecture definition (setting n channels as following input data channels)
 unet_model = UNet(n_channels, out_channels=3).to('cuda')
 """
-# optimizer & loss definition
-optimizer = torch.optim.Adam(unet_model.parameters(), lr=0.001)
-criterion = nn.CrossEntropyLoss()
+# Calculate proper class weights based on inverse frequency
+# Class 0: 90.1%, Class 1: 6.5%, Class 2: 3.4%
+total_samples = 9443300 + 684978 + 357482
+class_0_weight = total_samples / (3 * 9443300)  # ≈ 0.37
+class_1_weight = total_samples / (3 * 684978)   # ≈ 5.11
+class_2_weight = total_samples / (3 * 357482)   # ≈ 9.78
+class_weights = torch.tensor([class_0_weight, class_1_weight, class_2_weight]).to('cuda')
+print(f"Calculated class weights: {class_weights}")
+"""
+
+# optimizer & loss definition 
+optimizer = torch.optim.Adam(unet_model.parameters(), lr=0.001, weight_decay=1e-4)  
+criterion = nn.CrossEntropyLoss()  
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
+
+# For debugging, let's check the class distribution in the data
+print("Checking class distribution in training data...")
+class_counts = {0: 0, 1: 0, 2: 0}
+for i, (x, y, coords) in enumerate(train_loader):
+    if i >= 10:  # Check first 10 batches
+        break
+    y_flat = y.flatten()
+    unique, counts = torch.unique(y_flat, return_counts=True)
+    for cls, count in zip(unique, counts):
+        class_counts[cls.item()] += count.item()
+
+total_pixels = sum(class_counts.values())
+print(f"Class distribution: {[(cls, count, f'{count/total_pixels*100:.1f}%') for cls, count in class_counts.items()]}")
 
 
 trained_model = train_model(unet_model, train_loader, val_loader, criterion, optimizer, device, 25)
-
 #---------------------------------------------------------------
-"""
+
 # to reload previous model
 unet_model.load_state_dict(torch.load('/home/dario/Desktop/FirePrediction/best_prediction_model.pth', weights_only=True))
 

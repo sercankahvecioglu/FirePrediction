@@ -3,7 +3,7 @@ DATASETS*
 TILES*
 TEST*
 *__pycache__*
-*_full_img_results
+full_labels*
 PREDS_VS_LABELS
 data
 data_pkl
