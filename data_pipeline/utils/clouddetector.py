@@ -19,6 +19,9 @@ def is_cloudy(tiles_path:str, cloud_threshold:float = 0.5):
     cloud_results = {'cloudy_tiles': 0, 'clean_tiles': 0}
     for fname in glob.glob(os.path.join(tiles_path, 'TILES_INPUT_DATA', '*.npy')):
         tile = np.load(fname)
+        if tile.shape[-1] != 13:
+            print("File has a n° of channels =\= 13 (probably it has already been processed). Cloud mask will not be calculated.")
+            continue
         
         # Ensure tile has correct shape and data type
         if tile.ndim != 3:

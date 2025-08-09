@@ -4,6 +4,7 @@ import matplotlib.pyplot as plt
 import pickle
 from utils.bands_preprocessing import *
 from utils.clouddetector import is_cloudy
+from vegetation_filter import patch_vegetation_detection
 import time
 from shutil import copy2
 
@@ -45,7 +46,7 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     
     print("Obtaining Pre-Images geospatial information...")
     fname = os.path.join(base_path, "data_pkl", f"{dataset_name}_pre_tiles_data.pkl")
-    copy2(fname, os.path.join(tiles_input_path, os.basename(fname)))
+    copy2(fname, os.path.join(tiles_input_path, os.path.basename(fname)))
     print("Geospatial information saved successfully to input path!\n")
 
     #------------------------------------------------------------------------------------
@@ -85,14 +86,14 @@ def full_sentinel2_data_pipeline(dataset_name: str,
         
     #------------------------------------------------------------------------------------
 
-    # Step 4: Placeholder for vegetation detection model
-    # TODO: Implement vegetation detection model that removes tiles without sufficient vegetation
-    # This model should:
-    # - Analyze vegetation indices (NDVI/NDMI) in each remaining patch
-    # - Apply a vegetation threshold (e.g., minimum 30% vegetation coverage)
-    # - Move tiles with insufficient vegetation to a separate folder (e.g., "LOW_VEGETATION_tiles")
-    # - Return statistics similar to cloud detection results
-    # Example function call: vegetation_results = patch_vegetation_detection(tiles_input_path, vegetation_threshold=0.3)
+    # Step 4: Apply vegetation detection model
+    # TEMPORARY NDVI-BASED FILTERING
+    print("\n--- Step 4: Applying vegetation detection ---")
+    print(f"Using NDVI-based vegetation detection with {0.2*100}% vegetation coverage threshold")
+    init_time = time.time()
+    vegetation_results = patch_vegetation_detection(tiles_input_path, vegetation_threshold=0.2)
+    dt = time.time() - init_time
+    print(f"✓ Vegetation detection completed in {dt:.1f} seconds. Clean tiles: {vegetation_results['clean_tiles']}, Low vegetation tiles moved: {vegetation_results['low_vegetation_tiles']}")
 
     #------------------------------------------------------------------------------------
 
@@ -139,8 +140,9 @@ def full_sentinel2_data_pipeline(dataset_name: str,
         'bands_tiles': tiles_input_path,
         'label_tiles': tiles_labels_path,
         'full_img_results': full_labels_path,
-        'cloud_results': cloud_results
+        'cloud_results': cloud_results,
+        'vegetation_results': vegetation_results
     }
 
 if __name__ == '__main__':
-    full_sentinel2_data_pipeline('france2') 
+    full_sentinel2_data_pipeline('france2')

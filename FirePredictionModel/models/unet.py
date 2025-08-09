@@ -65,9 +65,9 @@ class UNet(nn.Module):
         dec1 = torch.cat((dec1, enc1), dim=1)
         dec1 = self.decoder1(dec1)
         
-        output = self.conv(dec1)
+        logits = self.conv(dec1)
         
-        return torch.softmax(output, dim=1)
+        return logits
 
     @staticmethod
     def _block(in_channels, features, name):
