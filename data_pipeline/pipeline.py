@@ -1,9 +1,11 @@
 import os
 import numpy as np
 import matplotlib.pyplot as plt
+import pickle
 from utils.bands_preprocessing import *
 from utils.clouddetector import is_cloudy
 import time
+from shutil import copy2
 
 
 
@@ -27,7 +29,7 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     print(f"=== Starting processing pipeline for dataset: {dataset_name} ===")
     
     # Define paths
-    full_img_path = os.path.join(base_path, f'{dataset_name}_full_img_results')
+    full_labels_path = os.path.join(base_path, f'full_labels')
     
     # Output patch directories
     tiles_input_path = os.path.join(base_path, 'TILES_INPUT_DATA')
@@ -38,29 +40,22 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     
     # Step 1: Extract data from folder and read all 13 bands
     all_bands = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B09', 'B10', 'B11', 'B12']
-    """
-    print("Saving geospatial information...")
-    extract_geospatial_metadata(dataset_name, os.path.join(base_path, "DATASETS"), tiles_input_path)
-    print("Geospatial information saved successfully!\n")
+    
+    #------------------------------------------------------------------------------------
+    
+    print("Obtaining Pre-Images geospatial information...")
+    fname = os.path.join(base_path, "data_pkl", f"{dataset_name}_pre_tiles_data.pkl")
+    copy2(fname, os.path.join(tiles_input_path, os.basename(fname)))
+    print("Geospatial information saved successfully to input path!\n")
 
-    # save band info (not 100% necessary, but better for clarity of bands info)
-    with open(os.path.join(tiles_input_path, f'{dataset_name}_band_info.pkl'), 'wb') as f:
-        band_info = {
-            'band_names': pre_bands['band_names'],
-            'band_order': pre_bands['band_order']
-        }
-        if 'resampling_info' in pre_bands:
-            band_info['resampling_info'] = pre_bands['resampling_info']
-        pickle.dump(band_info, f)
-"""
     #------------------------------------------------------------------------------------
     
     pre_path = os.path.join(base_path, 'data', f'{dataset_name}_pre.npy')
     post_path = os.path.join(base_path, 'data', f'{dataset_name}_post.npy')
     # Step 1: Create label map (dNBR)
     print("\n--- Step 1: Creating label map (dNBR) ---")
-    os.makedirs(full_img_path, exist_ok=True)
-    dnbr_path = extract_data_labels(pre_path, post_path, full_img_path)
+    os.makedirs(full_labels_path, exist_ok=True)
+    dnbr_path = extract_data_labels(pre_path, post_path, full_labels_path)
     print("✓ dNBR label map created")
 
     #------------------------------------------------------------------------------------
@@ -74,14 +69,14 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     print(f"✓ input tiles extracted to {tiles_input_path} in {dt:.1f} seconds") 
 
     # Also extract label tiles
-    dnbr_normmap = np.load(os.path.join(full_img_path, 'dnbr_normalized.npy'))
+    dnbr_normmap = np.load(os.path.join(full_labels_path, 'dnbr_normalized.npy'))
     extract_tiles_with_padding(dnbr_path, dataset_name, (*patch_size, 1), tiles_labels_path)
     print(f"✓ label tiles extracted to {tiles_input_path}")
 
     #------------------------------------------------------------------------------------
     
     # Step 3: Apply cloud detection function
-    print("\n--- Step 3: Applying cloud detection ---")
+    print("\n--- Step 3: Applying cloud detection ---") # T: approx. 9 minutes per single image
     print(f"Using S2PixelCloudDetector with % of cloudy pixels threshold: {cloud_threshold}")
     init_time = time.time()
     cloud_results = is_cloudy(base_path, cloud_threshold)
@@ -128,7 +123,7 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     print("📁 OUTPUT FOLDER LOCATIONS:")
     print(f"  🔸 Clean bands tiles +  indices (15 bands): {tiles_input_path}")
     print(f"  🔸 Label tiles (dNBR): {tiles_labels_path}")
-    print(f"  🔸 Full image label: {full_img_path}")
+    print(f"  🔸 Full image label: {full_labels_path}")
 
     # Display dNBR heatmap
     ax = plt.imshow(dnbr_normmap[:, :, 0], cmap='coolwarm')
@@ -136,14 +131,14 @@ def full_sentinel2_data_pipeline(dataset_name: str,
     plt.colorbar()
     plt.axis('off')
     plt.show()
-    plt.savefig(os.path.join(full_img_path, 'dnbr_heatmap.png'))
+    plt.savefig(os.path.join(full_labels_path, 'dnbr_heatmap.png'))
 
 
     return {
         'dataset_name': dataset_name,
         'bands_tiles': tiles_input_path,
         'label_tiles': tiles_labels_path,
-        'full_img_results': full_img_path,
+        'full_img_results': full_labels_path,
         'cloud_results': cloud_results
     }
 

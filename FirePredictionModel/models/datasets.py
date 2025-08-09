@@ -27,7 +27,7 @@ class Sent2Dataset(Dataset):
         self.target_transform = target_transform
         # geospatial info part
         self.geoinfo_paths = glob.glob(os.path.join(input_data_dir, "*_tiles_data.pkl"))
-        self.country_ids = [os.path.basename(path).split('_pre_tiles_data.pkl')[0] for path in self.geoinfo_paths]
+        self.country_ids = [os.path.basename(path).split('_tiles_data.pkl')[0] for path in self.geoinfo_paths]
         # get pickle data extracted
         self.geoinfo = []
         for path in self.geoinfo_paths:
