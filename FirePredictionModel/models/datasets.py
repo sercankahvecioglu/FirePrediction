@@ -5,7 +5,7 @@ from torch.utils.data import Dataset
 from torchvision.transforms import ToTensor, Normalize, Compose
 import numpy as np
 import pickle
-from data_pipeline.utils.geodata_extraction import get_real_world_coords
+from geodata_extraction import get_real_world_coords
 
 
 class Sent2Dataset(Dataset):
@@ -18,7 +18,7 @@ class Sent2Dataset(Dataset):
         - transform (OPTIONAL): transformation to apply to each input image
         - target_transform (OPTIONAL): transformation to apply to each label
     """
-    def __init__(self, input_data_dir, labels_dir, geoinfo_path, transform=None, target_transform=None):
+    def __init__(self, input_data_dir, labels_dir, transform=None, target_transform=None):
         self.input_data_dir = input_data_dir
         self.input_list = glob.glob(os.path.join(input_data_dir, "*.npy"))
         self.labels_dir = labels_dir
@@ -26,8 +26,8 @@ class Sent2Dataset(Dataset):
         self.transform = transform
         self.target_transform = target_transform
         # geospatial info part
-        self.geoinfo_paths = glob.glob(os.path.join(geoinfo_path, "*_tiles_data.pkl"))
-        self.country_ids = [os.path.basename(path).split('_tiles_data.pkl')[0] for path in self.geoinfo_paths]
+        self.geoinfo_paths = glob.glob(os.path.join(input_data_dir, "*_tiles_data.pkl"))
+        self.country_ids = [os.path.basename(path).split('_pre_tiles_data.pkl')[0] for path in self.geoinfo_paths]
         # get pickle data extracted
         self.geoinfo = []
         for path in self.geoinfo_paths:
@@ -69,16 +69,17 @@ class Sent2Dataset(Dataset):
         input_tensor = input_tensor.permute(2, 0, 1)
         label_tensor = label_tensor.permute(2, 0, 1)
         
+        
         # apply minmax normalization to all bands (separately)
-        for i in range(input_tensor.shape[0]):
+        for i in range(input_tensor.shape[0]):  # iterate over each band
             band = input_tensor[i]
             min_val = band.min()
             max_val = band.max()
             if max_val > min_val:  # avoid division by zero
-                input_tensor[i] = (band - min_val) / (max_val - min_val) 
+                input_tensor[i] = (band - min_val) / (max_val - min_val)
             else:
-                input_tensor[i] = torch.zeros_like(band)
-        
+                input_tensor[i] = torch.zeros_like(band)  # handle constant bands
+
         # apply transforms if provided
         if self.transform:
             input_tensor = self.transform(input_tensor)
@@ -91,4 +92,5 @@ class Sent2Dataset(Dataset):
 
 
 if __name__ == '__main__':
-    ds = Sent2Dataset("/home/dario/Desktop/FirePrediction/TILES_INPUT_DATA", "/home/dario/Desktop/FirePrediction/TILES_LABELS", "/home/dario/Desktop/FirePrediction/data_pkl")
+    ds = Sent2Dataset("/home/dario/Desktop/FirePrediction/TILES_INPUT_DATA", "/home/dario/Desktop/FirePrediction/TILES_LABELS")
+    ds[3]
