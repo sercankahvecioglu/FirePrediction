@@ -2,7 +2,6 @@ import os
 import numpy as np
 import matplotlib.pyplot as plt
 from utils.bands_preprocessing import *
-from FirePredictionModel.models.geodata_extraction import extract_geospatial_metadata
 from utils.clouddetector import is_cloudy
 import time
 

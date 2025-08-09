@@ -1,12 +1,7 @@
 import os
-import rasterio
 import numpy as np
-import matplotlib.pyplot as plt
 import glob
-import pickle
-from rasterio.warp import reproject, Resampling
 from scipy.ndimage import grey_closing
-from ...FirePredictionModel.models.geodata_extraction import extract_geospatial_metadata
 
 BAND_ORDER = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B09', 'B10', 'B11', 'B12']
 
