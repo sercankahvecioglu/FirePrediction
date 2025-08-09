@@ -3,6 +3,7 @@ from fastapi import FastAPI, File, UploadFile
 from fastapi.responses import JSONResponse
 import numpy as np
 from uuid import uuid4
+import uvicorn
 
 app = FastAPI()
 
@@ -19,12 +20,17 @@ def predict_fire(data: List[float]):
 
 
 @app.post("/upload-image")
-async def upload_image():
+async def upload_image(file: UploadFile = File(...)):
 
-    # Dummy ID for frontend to use
-    file_id = str(uuid4())
+    # Consume the upload stream so we’re sure the full file arrived
+    chunk_size = 1024 * 1024
+    while True:
+        chunk = await file.read(chunk_size)
+        if not chunk:
+            break
+    await file.close()
 
-    return {"file": {"id": file_id}}
+    return {"message": "image is taken"}
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=5000)
+    uvicorn.run("app:app", host="0.0.0.0", port=5000, reload=False)

@@ -6,18 +6,12 @@ services:
       context: ./client
       dockerfile: Dockerfile
     container_name: flamesentinels-frontend
-    volumes:
-      - ./client:/app
-      - shared-data:/app/uploads
     ports:
-      - "3000:3000"
-    environment:
-      - REACT_APP_API_URL=http://backend:5000
+      - "3000:80"  # browser will use localhost:3000
     depends_on:
       - backend
     networks:
       - flamesentinels-network
-    restart: unless-stopped
 
   backend:
     build:
@@ -25,19 +19,10 @@ services:
       dockerfile: Dockerfile
     container_name: flamesentinels-backend
     ports:
-      - "5001:5000"
-    volumes:
-      - ./server:/app
-      - shared-data:/app/uploads
-    environment:
-      - PORT=5000
+      - "5001:5000"  # optional, just for debugging from host
     networks:
       - flamesentinels-network
-    restart: unless-stopped
 
 networks:
   flamesentinels-network:
-    driver: bridge 
-
-volumes:
-  shared-data:
+    driver: bridge

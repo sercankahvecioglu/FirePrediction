@@ -6,6 +6,7 @@ import AnalysisResults from './components/AnalysisResults';
 import RiskAssessment from './components/RiskAssessment';
 import Footer from './components/Footer';
 
+
 interface AnalysisData {
   success: boolean;
   message: string;
@@ -16,6 +17,7 @@ function App() {
   const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const apiUrl = process.env.REACT_APP_API_URL;
 
   const testConnection = async () => {
   const formData = new FormData();
@@ -25,7 +27,7 @@ function App() {
   formData.append("file", blob, "test.png");
 
   try {
-    const response = await fetch(`${process.env.REACT_APP_API_URL}/upload-image`, {
+    const response = await fetch(`/api/upload-image`, {
       method: 'POST',
       body: formData,
     });
@@ -48,7 +50,7 @@ function App() {
       const formData = new FormData();
       formData.append('file', file);
       
-      const uploadResponse = await fetch('http://backend:5001/upload-image', {
+      const uploadResponse = await fetch(`/api/upload-image`, {
         method: 'POST',
         body: formData,
       });
@@ -82,13 +84,13 @@ function App() {
           </p>
         </div>
         <div className="text-center mb-8">
-          <button
-            onClick={testConnection}
-            className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded"
-          >
-            Test Backend Connection
-          </button>
-        </div>
+        <button
+          onClick={testConnection}
+          className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded"
+        >
+          Test Backend Connection
+        </button>
+      </div>
 
 
         {/* File Upload Section */}

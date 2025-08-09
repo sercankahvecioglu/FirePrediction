@@ -1,17 +1,21 @@
-FROM node:18-alpine
-
+# Step 1: Build React app
+FROM node:18 AS build
 WORKDIR /app
 
-# Package.json ve package-lock.json dosyalarını kopyala
+# Install dependencies
 COPY package*.json ./
-
-# Bağımlılıkları yükle
 RUN npm install
 
-# Kaynak kodları kopyala
+# Copy source code and build
 COPY . .
+RUN npm run build
 
-EXPOSE 3000
+# Step 2: Serve with Nginx
+FROM nginx:1.25
+COPY --from=build /app/build /usr/share/nginx/html
 
-# Development modunda başlat
-CMD ["npm", "start"] 
+# Copy custom nginx config (this handles /api proxy to backend)
+COPY nginx.conf /etc/nginx/conf.d/default.conf
+
+EXPOSE 80
+CMD ["nginx", "-g", "daemon off;"]
