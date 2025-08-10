@@ -12,3 +12,6 @@ data_pipeline/utils/.DS_Store
 data_pipeline/.DS_Store
 data_pipeline/utils/data_api/.env
 data_pipeline/utils/data_api/.DS_Store
+data_pipeline/utils/.env
+.gitignore
+.DS_Store
