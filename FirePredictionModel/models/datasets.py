@@ -92,5 +92,5 @@ class Sent2Dataset(Dataset):
 
 
 if __name__ == '__main__':
-    ds = Sent2Dataset("/home/dario/Desktop/FirePrediction/TILES_INPUT_DATA", "/home/dario/Desktop/FirePrediction/TILES_LABELS")
+    ds = Sent2Dataset("/home/dario/Desktop/FirePrediction/TILES_BALANCED/inputs", "/home/dario/Desktop/FirePrediction/TILES_BALANCED/labels")
     ds[3]

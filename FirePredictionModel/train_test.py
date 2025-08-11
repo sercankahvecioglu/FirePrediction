@@ -1,19 +1,125 @@
 import torch 
 import torch.nn as nn
+import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split  
 from models.unet import UNet
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
-from sklearn.metrics import mean_squared_error, mean_absolute_error, accuracy_score, f1_score
+from sklearn.metrics import accuracy_score, confusion_matrix
 from sklearn.model_selection import train_test_split
 import matplotlib.pyplot as plt
 import glob
-import os
+import os   
 import pickle
 import matplotlib
-from models.datasets import Sent2Dataset
 from models.geodata_extraction import *
+from models.datasets import Sent2Dataset
+
+
+class MulticlassDiceLoss(nn.Module):
+    """Multiclass Dice Loss for Pytorch
+
+    Args:
+        predict: A tensor of logits, shape (batch_size, n_classes, height, width) output by the model
+        target: A tensor of shape (batch_size, height, width) containing class indices
+    """
+    def __init__(self, n_classes=3):
+        super().__init__()
+        self.smooth = 1e-6  # parameter to avoid division by 0
+        self.n_classes = n_classes
+
+    def forward(self, predict, target):
+        # predict shape: (batch_size, n_classes, height, width)
+        # target shape: (batch_size, height, width)
+
+        batch_size, n_classes, height, width = predict.shape
+
+        assert self.n_classes == n_classes
+        
+        # get probabilities from logits
+        predict = torch.softmax(predict, dim=1)
+        
+        # convert target to one-hot encoding
+        target_one_hot = F.one_hot(target, num_classes=n_classes).permute(0, 3, 1, 2).float()   # permute to obtain (batch_size, n_classes, height, width)
+        
+        # flatten tensors for easier computation
+        predict = predict.view(batch_size, n_classes, -1)  # (batch_size, n_classes, H*W)
+        target_one_hot = target_one_hot.view(batch_size, n_classes, -1)  # (batch_size, n_classes, H*W)
+        
+        # compute dice coefficient for each class
+        intersection = (predict * target_one_hot).sum(dim=2)  # (batch_size, n_classes)
+        union = predict.sum(dim=2) + target_one_hot.sum(dim=2)  # (batch_size, n_classes)
+        
+        # dice coefficient: 2 * intersection / (union + smooth)
+        dice = (2.0 * intersection + self.smooth) / (union + self.smooth)
+        
+        # average across classes and batch
+        dice_loss = 1.0 - dice.mean()
+        
+        return dice_loss
+
+
+def compute_mean_iou(y_true, y_pred, n_classes=3):
+    """
+    Compute mean Intersection over Union (IoU) for multi-class segmentation
+    
+    Args:
+        y_true: True labels (flattened)
+        y_pred: Predicted labels (flattened) 
+        n_classes: Number of classes
+        
+    Returns:
+        mean_iou: Mean IoU across all classes
+    """
+    ious = []
+    
+    for class_id in range(n_classes):
+        # True positives, false positives, false negatives
+        tp = np.sum((y_true == class_id) & (y_pred == class_id))
+        fp = np.sum((y_true != class_id) & (y_pred == class_id))
+        fn = np.sum((y_true == class_id) & (y_pred != class_id))
+        
+        # IoU = TP / (TP + FP + FN)
+        if tp + fp + fn > 0:
+            iou = tp / (tp + fp + fn)
+        else:
+            iou = 1.0  # Perfect score for classes not present in either true or pred
+            
+        ious.append(iou)
+    
+    return np.mean(ious)
+
+
+def compute_sensitivity_classes_1_2(y_true, y_pred):
+    """
+    Compute sensitivity (recall) for classes 1 and 2, averaged
+    
+    Args:
+        y_true: True labels (flattened)
+        y_pred: Predicted labels (flattened)
+        
+    Returns:
+        avg_sensitivity: Average sensitivity for classes 1 and 2
+    """
+    sensitivities = []
+    
+    for class_id in [1, 2]:
+        # True positives and false negatives
+        tp = np.sum((y_true == class_id) & (y_pred == class_id))
+        fn = np.sum((y_true == class_id) & (y_pred != class_id))
+        
+        # Sensitivity = TP / (TP + FN)
+        if tp + fn > 0:
+            sensitivity = tp / (tp + fn)
+        else:
+            sensitivity = 0.0  # No true positives exist for this class
+            
+        sensitivities.append(sensitivity)
+    
+    return np.mean(sensitivities)
+
+
 
 
 # main train loop
@@ -35,7 +141,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
             x, y = x.to(device), y.to(device).long().squeeze(1)  # Remove channel dimension
 
             optimizer.zero_grad()
-            # output probabilities
+            # output logits
             outputs = model(x)
 
             # apply argmax along channel dimension (dim=1) to get predicted classes
@@ -63,7 +169,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
         all_labels_flat = np.array(all_labels).flatten()
         
         train_acc = accuracy_score(all_labels_flat, all_preds_flat)
-        train_f1 = f1_score(all_labels_flat, all_preds_flat, average='weighted')
+        train_miou = compute_mean_iou(all_labels_flat, all_preds_flat, n_classes=3)
+        train_sens_12 = compute_sensitivity_classes_1_2(all_labels_flat, all_preds_flat)
 
         # validation phase
         model.eval()
@@ -94,12 +201,13 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
         all_val_labels_flat = np.array(all_val_labels).flatten()
         
         val_acc = accuracy_score(all_val_labels_flat, all_val_preds_flat)
-        val_f1 = f1_score(all_val_labels_flat, all_val_preds_flat, average='weighted')
+        val_miou = compute_mean_iou(all_val_labels_flat, all_val_preds_flat, n_classes=3)
+        val_sens_12 = compute_sensitivity_classes_1_2(all_val_labels_flat, all_val_preds_flat)
 
         # print results update
         print(f"Epoch {epoch + 1}:")
-        print(f"  Train Loss: {train_loss:.4f} | Acc: {train_acc:.4f} | F1: {train_f1:.4f}")
-        print(f"  Val Loss: {val_loss:.4f}   | Acc: {val_acc:.4f} | F1: {val_f1:.4f}\n")
+        print(f"  Train Loss: {train_loss:.4f} | Acc: {train_acc:.4f} | mIoU: {train_miou:.4f} | Sens(1,2): {train_sens_12:.4f}")
+        print(f"  Val Loss: {val_loss:.4f}   | Acc: {val_acc:.4f} | mIoU: {val_miou:.4f} | Sens(1,2): {val_sens_12:.4f}\n")
 
         # saving best model at each epoch, if val loss improves
         if val_loss < best_val_loss:
@@ -162,12 +270,13 @@ def evaluate_model(model, test_loader, device, filenames, output_dir='/home/dari
 
     # metrics
     acc = accuracy_score(all_labels_flat, all_preds_flat)
-    f1 = f1_score(all_labels_flat, all_preds_flat, average='weighted')
+    miou = compute_mean_iou(all_labels_flat, all_preds_flat, n_classes=3)
+    sens_12 = compute_sensitivity_classes_1_2(all_labels_flat, all_preds_flat)
 
-    print(f"\nTest Accuracy: {acc:.4f} | Test F1: {f1:.4f}")
+    print(f"\nTest Accuracy: {acc:.4f} | Test mIoU: {miou:.4f} | Test Sens(1,2): {sens_12:.4f}")
 
-train_dataset = Sent2Dataset("/home/dario/Desktop/FirePrediction/TILES_INPUT_DATA", 
-                             "/home/dario/Desktop/FirePrediction/TILES_LABELS")
+train_dataset = Sent2Dataset("/home/dario/Desktop/FirePrediction/TILES_BALANCED/inputs", 
+                             "/home/dario/Desktop/FirePrediction/TILES_BALANCED/labels")
 test_dataset = Sent2Dataset("/home/dario/Desktop/FirePrediction/TEST_INPUT_DATA",
                             "/home/dario/Desktop/FirePrediction/TEST_LABELS")
 
@@ -189,6 +298,7 @@ test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
 # architecture definition (setting n channels as following input data channels)
 unet_model = UNet(n_channels, out_channels=3).to('cuda')
+
 """
 # Calculate proper class weights based on inverse frequency
 # Class 0: 90.1%, Class 1: 6.5%, Class 2: 3.4%
@@ -202,7 +312,7 @@ print(f"Calculated class weights: {class_weights}")
 
 # optimizer & loss definition 
 optimizer = torch.optim.Adam(unet_model.parameters(), lr=0.001, weight_decay=1e-4)  
-criterion = nn.CrossEntropyLoss()  
+criterion = MulticlassDiceLoss(n_classes=3)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # For debugging, let's check the class distribution in the data
