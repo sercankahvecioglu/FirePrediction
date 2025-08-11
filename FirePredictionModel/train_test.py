@@ -2,7 +2,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, random_split  
-from models.unet import UNet
+from FirePredictionModel.unet import UNet
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
@@ -13,8 +13,8 @@ import glob
 import os   
 import pickle
 import matplotlib
-from models.geodata_extraction import *
-from models.datasets import Sent2Dataset
+from FirePredictionModel.geodata_extraction import *
+from FirePredictionModel.datasets import Sent2Dataset
 
 
 class MulticlassDiceLoss(nn.Module):
@@ -214,7 +214,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
             not_improved_epochs = 0
             best_val_loss = val_loss
             # Save the entire model (architecture + weights)
-            torch.save(model.state_dict(), f"/home/dario/Desktop/FirePrediction/best_prediction_model.pth")
+            torch.save(model.state_dict(), f"/home/dario/Desktop/FirePrediction/trained_models/best_fireprediction_model.pth")
             print(f"  --> Saved best model (val_loss improved)\n")
         else: 
             not_improved_epochs += 1
@@ -275,8 +275,8 @@ def evaluate_model(model, test_loader, device, filenames, output_dir='/home/dari
 
     print(f"\nTest Accuracy: {acc:.4f} | Test mIoU: {miou:.4f} | Test Sens(1,2): {sens_12:.4f}")
 
-train_dataset = Sent2Dataset("/home/dario/Desktop/FirePrediction/TILES_BALANCED/inputs", 
-                             "/home/dario/Desktop/FirePrediction/TILES_BALANCED/labels")
+train_dataset = Sent2Dataset("/home/dario/Desktop/FirePrediction/TILES_INPUT_DATA", 
+                             "/home/dario/Desktop/FirePrediction/TILES_LABELS")
 test_dataset = Sent2Dataset("/home/dario/Desktop/FirePrediction/TEST_INPUT_DATA",
                             "/home/dario/Desktop/FirePrediction/TEST_LABELS")
 
