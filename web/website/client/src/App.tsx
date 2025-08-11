@@ -6,38 +6,50 @@ import AnalysisResults from './components/AnalysisResults';
 import RiskAssessment from './components/RiskAssessment';
 import Footer from './components/Footer';
 
+
 interface AnalysisData {
-  coordinates: {
-    latitude: number;
-    longitude: number;
-  };
+  success: boolean;
+  message: string;
   timestamp: string;
-  resolution: string;
-  riskAssessment: {
-    highRisk: number;
-    mediumRisk: number;
-    lowRisk: number;
-    totalArea: number;
-  };
-  heatmapData: any[];
-  confidence: number;
 }
 
 function App() {
   const [analysisData, setAnalysisData] = useState<AnalysisData | null>(null);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
+  const apiUrl = process.env.REACT_APP_API_URL;
+
+  const testConnection = async () => {
+  const formData = new FormData();
+
+  // Send a dummy file (simulate a test image)
+  const blob = new Blob(["test"], { type: "image/png" });
+  formData.append("file", blob, "test.png");
+
+  try {
+    const response = await fetch(`/api/upload-image`, {
+      method: 'POST',
+      body: formData,
+    });
+
+    const result = await response.json();
+    console.log("Backend response:", result);
+    alert(`Connected! Backend says: ${JSON.stringify(result)}`);
+  } catch (err) {
+    console.error("Failed to connect to backend:", err);
+    alert("Failed to connect to backend.");
+  }
+};
 
   const handleFileUpload = async (file: File) => {
     setUploadedFile(file);
-    setIsAnalyzing(true);
     
     try {
       // Dosya yükleme
       const formData = new FormData();
       formData.append('file', file);
       
-      const uploadResponse = await fetch('/api/upload', {
+      const uploadResponse = await fetch(`/api/upload-image`, {
         method: 'POST',
         body: formData,
       });
@@ -45,25 +57,9 @@ function App() {
       if (!uploadResponse.ok) {
         throw new Error('Dosya yükleme hatası');
       }
-      
       const uploadResult = await uploadResponse.json();
-      
-      // Analiz başlat (fileId ile)
-      const analyzeResponse = await fetch('/api/analyze', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({ fileId: uploadResult.file.id }),
-      });
-      
-      if (!analyzeResponse.ok) {
-        throw new Error('Analiz hatası');
-      }
-      
-      const analysisResult = await analyzeResponse.json();
-      setAnalysisData(analysisResult.results);
-    } catch (error) {
+
+      } catch (error) {
       console.error('Hata:', error);
       alert('İşlem sırasında bir hata oluştu');
     } finally {
@@ -86,6 +82,15 @@ function App() {
             AI-Powered Fire Risk Prediction from Satellite Imagery
           </p>
         </div>
+        <div className="text-center mb-8">
+        <button
+          onClick={testConnection}
+          className="bg-blue-500 hover:bg-blue-600 text-white font-bold py-2 px-4 rounded"
+        >
+          Test Backend Connection
+        </button>
+      </div>
+
 
         {/* File Upload Section */}
         <div className="mb-12">
@@ -104,12 +109,7 @@ function App() {
           </div>
         )}
 
-        {/* Risk Assessment */}
-        {analysisData && (
-          <div className="mb-12">
-            <RiskAssessment data={analysisData.riskAssessment} />
-          </div>
-        )}
+
       </main>
 
       <Footer />
