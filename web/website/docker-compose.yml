@@ -1,42 +1,28 @@
 version: '3.8'
 
 services:
-  mongodb:
-    image: mongo
-    container_name: flamesentinels-mongodb
-    restart: always
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: admin
-      MONGO_INITDB_ROOT_PASSWORD: password
-      MONGO_INITDB_DATABASE: flamesentinels
+  frontend:
+    build:
+      context: ./client
+      dockerfile: Dockerfile
+    container_name: flamesentinels-frontend
     ports:
-      - "27018:27017"
-    volumes:
-      - mongodb_data:/data/db
-      - ./mongo-init.js:/docker-entrypoint-initdb.d/mongo-init.js:ro
-    networks:
-      - flamesentinels-network
-
-  mongo-express:
-    image: mongo-express
-    container_name: flamesentinels-mongo-express
-    restart: always
-    environment:
-      ME_CONFIG_MONGODB_ADMINUSERNAME: admin
-      ME_CONFIG_MONGODB_ADMINPASSWORD: password
-      ME_CONFIG_MONGODB_URL: mongodb://admin:password@mongodb:27017/
-      ME_CONFIG_BASICAUTH_USERNAME: admin
-      ME_CONFIG_BASICAUTH_PASSWORD: password
-    ports:
-      - "8082:8081"
+      - "3000:80"  # browser will use localhost:3000
     depends_on:
-      - mongodb
+      - backend
     networks:
       - flamesentinels-network
 
-volumes:
-  mongodb_data:
+  backend:
+    build:
+      context: ./server
+      dockerfile: Dockerfile
+    container_name: flamesentinels-backend
+    ports:
+      - "5001:5000"  # optional, just for debugging from host
+    networks:
+      - flamesentinels-network
 
 networks:
   flamesentinels-network:
-    driver: bridge 
+    driver: bridge

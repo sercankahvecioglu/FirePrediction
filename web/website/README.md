@@ -1,2 +1,2 @@
-Flame Sentinels Team
-  
+# FlameSentinels - Wildfire Risk Intelligence Platform
+
