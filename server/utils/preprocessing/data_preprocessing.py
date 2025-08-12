@@ -1,6 +1,15 @@
 import os
-from bands_preprocessing import *
-from clouddetector import is_cloudy
+from .bands_preprocessing import *
+import sys
+
+# Add clouddetector to the path
+sys.path.append(
+    os.path.abspath(os.path.join(os.getcwd(), "..", "cloud_detection"))
+)
+
+
+from cloud_detection import is_cloudy
+
 import time
 from shutil import copy2
 from s2cloudless import S2PixelCloudDetector

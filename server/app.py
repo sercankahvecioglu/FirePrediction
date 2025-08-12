@@ -12,6 +12,9 @@ import sys
 
 # ---- HOMEMADE LIBRARIES ---- #
 
+# Add sys to the path
+sys.path.append(os.path.join(os.path.dirname(__file__), "utils"))
+
 from utils.mail.send_mail import send_mail # Sending mail adverting higher fire risk
 
 # Load from utils library
