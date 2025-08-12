@@ -1,6 +1,10 @@
 import os
+import sys
+# Add the parent directory to Python path
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from bands_preprocessing import *
-from clouddetector import is_cloudy
+from cloud_detection.clouddetector import is_cloudy
+from forest_detection.veg_model_eval import veg_detector, ndvi_veg_detector
 import time
 from shutil import copy2
 from s2cloudless import S2PixelCloudDetector
@@ -61,20 +65,16 @@ class BaseProcessor():
         print(f"✓ Cloud detection completed in {dt:.1f} seconds. Clean tiles: {cloud_results['clean_tiles']}, Cloudy tiles moved: {cloud_results['cloudy_tiles']}")
         return cloud_results
     
-
-    # TODO: change this part and integrate veg. model instead of dummy model
-    # (non-veg. tiles should be discarded)
     def _apply_vegetation_detection(self):
         """Apply vegetation detection filtering"""
         print("\n--- Step 4: Applying vegetation detection ---")
         print(f"Using NDVI-based vegetation detection with {0.2*100}% vegetation coverage threshold")
         init_time = time.time()
-        # PLACEHOLDER for results, to be substituted with actual function computation
-        vegetation_results = {'clean_tiles': 0, 'low_vegetation_tiles': 0}
+        veg_tiles, no_veg_tiles = ndvi_veg_detector(self.tiles_input_path)
         #----------------------------------------------------------------
         dt = time.time() - init_time
-        print(f"✓ Vegetation detection completed in {dt:.1f} seconds. Clean tiles: {vegetation_results['clean_tiles']}, Low vegetation tiles moved: {vegetation_results['low_vegetation_tiles']}")
-        return vegetation_results
+        print(f"✓ Vegetation detection completed in {dt:.1f} seconds. Clean tiles: {veg_tiles}, Low vegetation tiles moved: {no_veg_tiles}")
+        return veg_tiles, no_veg_tiles
     
     def _extract_indices(self):
         """Extract NDVI and NDMI for remaining clean tiles"""
@@ -206,5 +206,5 @@ class SatelliteProcessor(BaseProcessor):
 
 # brief running check to see if the code works correctly
 if __name__ == '__main__':
-    train_proc = TrainDataProcessor('france2')
+    train_proc = TrainDataProcessor('chile')
     train_proc.run()
