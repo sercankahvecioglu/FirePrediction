@@ -2,6 +2,7 @@
 DATASETS*
 TILES*
 TEST*
+LABELS*
 *__pycache__*
 full_labels*
 PREDS_VS_LABELS
