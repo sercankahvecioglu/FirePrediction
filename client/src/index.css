@@ -2,93 +2,138 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Definition of the design system. All colors, gradients, fonts, etc should be defined here. 
+All colors MUST be HSL.
+*/
+
 @layer base {
+  :root {
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+
+    --primary: 222.2 47.4% 11.2%;
+    --primary-foreground: 210 40% 98%;
+
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 222.2 84% 4.9%;
+
+    --radius: 0.5rem;
+
+    /* Enhanced design tokens */
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary) / 0.08), hsl(var(--ring) / 0.08));
+    --shadow-elegant: 0 12px 30px -10px hsl(var(--ring) / 0.15);
+    --transition-smooth: all 220ms cubic-bezier(0.4, 0, 0.2, 1);
+
+
+    --sidebar-background: 0 0% 98%;
+
+    --sidebar-foreground: 240 5.3% 26.1%;
+
+    --sidebar-primary: 240 5.9% 10%;
+
+    --sidebar-primary-foreground: 0 0% 98%;
+
+    --sidebar-accent: 240 4.8% 95.9%;
+
+    --sidebar-accent-foreground: 240 5.9% 10%;
+
+    --sidebar-border: 220 13% 91%;
+
+    --sidebar-ring: 217.2 91.2% 59.8%;
+    /* Flame theme tokens */
+    --flame-1: 16 92% 55%;
+    --flame-2: 28 96% 61%;
+    --flame-3: 2 89% 53%;
+    --gradient-flame: linear-gradient(135deg, hsl(var(--flame-1)), hsl(var(--flame-2)) 50%, hsl(var(--flame-3)));
+    --shadow-flame: 0 8px 28px -8px hsl(var(--flame-1) / 0.35);
+
+    /* Typography tokens */
+    --font-heading: 'Playfair Display', serif;
+  }
+
+  .dark {
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+
+    --primary: 210 40% 98%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 212.7 26.8% 83.9%;
+
+    /* Enhanced design tokens (dark) */
+    --gradient-primary: linear-gradient(135deg, hsl(var(--primary) / 0.08), hsl(var(--foreground) / 0.06));
+    --shadow-elegant: 0 12px 30px -10px hsl(var(--foreground) / 0.25);
+    --transition-smooth: all 220ms cubic-bezier(0.4, 0, 0.2, 1);
+
+    --sidebar-background: 240 5.9% 10%;
+    --sidebar-foreground: 240 4.8% 95.9%;
+    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-primary-foreground: 0 0% 100%;
+    --sidebar-accent: 240 3.7% 15.9%;
+    --sidebar-accent-foreground: 240 4.8% 95.9%;
+    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-ring: 217.2 91.2% 59.8%;
+  }
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
   body {
-    @apply bg-dark-900 text-white font-sans;
+    @apply bg-background text-foreground;
   }
 }
 
 @layer components {
-  .btn-primary {
-    @apply bg-primary-600 hover:bg-primary-700 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200;
-  }
-  
-  .btn-secondary {
-    @apply bg-dark-700 hover:bg-dark-600 text-white font-medium py-2 px-4 rounded-lg transition-colors duration-200;
-  }
-  
-  .card {
-    @apply bg-dark-800 rounded-lg p-6 shadow-lg border border-dark-700;
-  }
-  
-  .input-field {
-    @apply bg-dark-700 border border-dark-600 text-white rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent;
+  .flame-ambient {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 0;
+    background:
+      radial-gradient(60% 40% at 20% 10%, hsl(var(--flame-2) / 0.10), transparent 60%),
+      radial-gradient(50% 35% at 80% 20%, hsl(var(--flame-1) / 0.10), transparent 60%),
+      radial-gradient(70% 50% at 50% 90%, hsl(var(--flame-3) / 0.08), transparent 60%);
   }
 }
-
-/* Custom scrollbar */
-::-webkit-scrollbar {
-  width: 8px;
-}
-
-::-webkit-scrollbar-track {
-  @apply bg-dark-800;
-}
-
-::-webkit-scrollbar-thumb {
-  @apply bg-dark-600 rounded-full;
-}
-
-::-webkit-scrollbar-thumb:hover {
-  @apply bg-dark-500;
-}
-
-/* Custom slider styles */
-.slider {
-  -webkit-appearance: none;
-  appearance: none;
-  background: transparent;
-  cursor: pointer;
-}
-
-.slider::-webkit-slider-track {
-  background: linear-gradient(to right, #22c55e, #f59e0b, #ef4444);
-  height: 8px;
-  border-radius: 4px;
-}
-
-.slider::-webkit-slider-thumb {
-  -webkit-appearance: none;
-  appearance: none;
-  background: #0ea5e9;
-  height: 20px;
-  width: 20px;
-  border-radius: 50%;
-  cursor: pointer;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-}
-
-.slider::-webkit-slider-thumb:hover {
-  background: #0284c7;
-}
-
-.slider::-moz-range-track {
-  background: linear-gradient(to right, #22c55e, #f59e0b, #ef4444);
-  height: 8px;
-  border-radius: 4px;
-  border: none;
-}
-
-.slider::-moz-range-thumb {
-  background: #0ea5e9;
-  height: 20px;
-  width: 20px;
-  border-radius: 50%;
-  cursor: pointer;
-  border: none;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.2);
-}
-
-.slider::-moz-range-thumb:hover {
-  background: #0284c7;
-} 
