@@ -1,6 +1,10 @@
-fastapi
-uvicorn
-python-multipart
+# FastAPI and web server dependencies
+fastapi>=0.104.0
+uvicorn[standard]>=0.24.0
+python-multipart>=0.0.6
+pydantic>=2.4.0
+
+# Google API dependencies for email alerts
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
