@@ -1,3 +1,4 @@
+import shutil
 from typing import List, Dict, Optional, Tuple
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
@@ -9,6 +10,10 @@ import json
 from datetime import datetime
 import asyncio
 import sys
+import numpy as np
+import pandas as pd
+import math
+import time
 
 # ---- HOMEMADE LIBRARIES ---- #
 
@@ -26,46 +31,73 @@ from utils import data_api
 
 # Initialize FastAPI app with metadata
 app = FastAPI(
-    title="Satellite Image Fire Risk Prediction API",
-    description="API for processing satellite images to predict fire risk using cloud masking and vegetation detection",
+    title="Satellite Image Analysis API - Asynchronous Processing",
+    description="API for processing satellite images with cloud detection, forest detection, and fire prediction using asynchronous job-based workflow",
     version="1.0.0"
 )
 
 # Pydantic models for request/response schemas
-class TileInfo(BaseModel):
-    """Information about a single tile"""
-    tile_id: str
-    position: Tuple[int, int]  # (row, col) position in grid
-    has_clouds: bool
-    cloud_percentage: float
-    is_discarded: bool
-    vegetation_detected: bool
-    fire_risk_score: float
+class JobResponse(BaseModel):
+    """Response model for job creation"""
+    job_id: str
+    status: str
+    message: str
 
-class ProcessingStatus(BaseModel):
+class JobStatus(BaseModel):
     """Status of image processing job"""
     job_id: str
+    task: str  # 'cloud_detection', 'forest_detection', 'fire_prediction'
     status: str  # "pending", "processing", "completed", "failed"
     created_at: datetime
     completed_at: Optional[datetime]
-    total_tiles: int
-    processed_tiles: int
-    discarded_tiles: int
+    tiles_to_process: int  # Number of tiles to process 
+    tiles_processed: int  # Number of tiles processed
+    successful_tiles: int  # Number of successfully processed tiles
+    progress: int  # 0-100
+    message: str
 
-class FireRiskHeatmap(BaseModel):
-    """Fire risk heatmap response"""
+class ProcessedImageResponse(BaseModel):
+    """Response model for processed image"""
     job_id: str
-    grid_dimensions: Tuple[int, int]  # (rows, cols)
-    tiles: List[TileInfo]
-    heatmap_url: str
-    metadata: Dict
+    task: str
+    rgb_image_url: str
+    cloud_image_url: str
+    forest_image_url: str
+    heatmap_image_url: str
+    metadata: pd.DataFrame
 
 # In-memory storage for demo purposes (use database in production)
 processing_jobs = {}
-tile_data = {}
+processed_images = {}
+
+# ------ CONSTANTS ----- #
+
+# allowed_formats = [".npy", ".tiff", ".tif"]
+allowed_formats = [".npy"]
+
+# Folders
+DATA_PATH = os.path.join(os.getcwd(), "data")
+RAW_IMAGES_PATH = os.path.join(DATA_PATH, "RAW_IMAGES")
+CLOUD_IMAGES_PATH = os.path.join(DATA_PATH, "CLOUD_IMAGES")
+TILES_IMAGES_PATH = os.path.join(DATA_PATH, "TILES_IMAGES")
+FOREST_IMAGES_PATH = os.path.join(DATA_PATH, "FOREST_IMAGES")
+FIRE_IMAGES_PATH = os.path.join(DATA_PATH, "FIRE_IMAGES")
+METADATA_FOLDER = os.path.join(DATA_PATH, "METADATA")
+DISPLAY_FOLDER = os.path.join(DATA_PATH, "DISPLAY")
+
+# Create folders if necessary
+os.makedirs(RAW_IMAGES_PATH, exist_ok=True)
+os.makedirs(CLOUD_IMAGES_PATH, exist_ok=True)
+os.makedirs(TILES_IMAGES_PATH, exist_ok=True)
+os.makedirs(FOREST_IMAGES_PATH, exist_ok=True)
+os.makedirs(FIRE_IMAGES_PATH, exist_ok=True)
+os.makedirs(METADATA_FOLDER, exist_ok=True)
+os.makedirs(DISPLAY_FOLDER, exist_ok=True)
+
+# ---------------------- #
 
 @app.get("/", tags=["Health Check"])
-def read_root():
+def healthcheck():
     """
     Health check endpoint to verify API is running.
     
@@ -73,87 +105,241 @@ def read_root():
         dict: Welcome message and API status
     """
     return {
-        "message": "Welcome to the Satellite Image Fire Risk Prediction API",
+        "message": "Welcome to the Satellite Image Analysis API",
         "status": "operational",
-        "version": "1.0.0"
+        "version": "2.0.0",
+        "available_analyses": ["cloud_detection", "forest_detection", "fire_prediction"]
     }
 
-@app.post("/upload-and-tile", response_model=ProcessingStatus, tags=["Image Processing"])
-async def upload_and_tile_image(
+# ============================================================================
+# STEP 1: SEND IMAGE - Submit image for processing
+# ============================================================================
+
+@app.post("/submit-image/cloud-detection", response_model=JobResponse, tags=["Submit Image"])
+async def submit_image_cloud_detection(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    tile_size: int = 256 
+    tile_size: int = 256
 ):
     """
-    Upload a large satellite image and divide it into tiles for processing.
+    Submit a satellite image for cloud detection analysis.
     
-    This endpoint:
-    1. Receives a large satellite image file
-    2. Validates the image format and size
-    3. Divides the image into smaller tiles of specified size
-    4. Creates a processing job and returns job ID for tracking
-    5. Starts background processing of tiles
+    **Processing Flow:**
+    1. Upload and validate satellite image
+    2. Create asynchronous processing job
+    3. Return job ID for tracking
+    
+    **Input:**
+    - Satellite image file (supported formats: .npy, .tiff, .tif)
+    - Image should contain multi-spectral bands for optimal cloud detection
+    
+    **Output:**
+    - Job ID for tracking processing status
+    - Estimated processing time
+    
+    **Next Steps:**
+    1. Use job ID to check processing status with `/job-status/{job_id}`
+    2. Once completed, retrieve result with `/get-result/{job_id}`
     
     Args:
-        file (UploadFile): The satellite image file (NPY supported at the moment)
-        tile_size (int): Size of each tile in pixels (default: 256x256)
-
-    Returns:
-        ProcessingStatus: Job information including job_id for tracking progress
+        file (UploadFile): Satellite image file for cloud detection
         
-    Raises:
-        HTTPException: If file format is unsupported or file is too large
+    Returns:
+        JobResponse: Job information including job_id for tracking progress
     """
-    # Generate unique job ID
     job_id = str(uuid.uuid4())
     
     # Validate file format
-    # allowed_formats = [".tiff", ".tif", ".npy"]
-    allowed_formats = [".npy"]
     file_extension = os.path.splitext(file.filename)[1].lower()
     if file_extension not in allowed_formats:
-        raise HTTPException(status_code=400, detail=f"Unsupported file format. Allowed: {allowed_formats}")
-    
-    # TODO: Implement image tiling logic here
-    # - Save uploaded file to temporary location
-    # - Load image using PIL/OpenCV/rasterio
-    # - Validate image dimensions and format
-    # - Calculate number of tiles needed
-    # - Create tile grid and save individual tiles
-    # - Store tile metadata (position, file paths, etc.)
-    
-    # Mock calculation for demo
-    mock_total_tiles = 64  # This would be calculated based on image size and tile_size
-    
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unsupported file format. Allowed: {allowed_formats}"
+        )
+
+    image = np.load(file.file)
+
+    rows = math.ceil(image.shape[0] / tile_size)
+    cols = math.ceil(image.shape[1] / tile_size)
+
+    number_of_tiles = rows * cols
+
     # Create processing job
-    processing_jobs[job_id] = ProcessingStatus(
+    processing_jobs[job_id] = JobStatus(
         job_id=job_id,
+        task="cloud_detection",
         status="pending",
         created_at=datetime.now(),
         completed_at=None,
-        total_tiles=mock_total_tiles,
-        processed_tiles=0,
-        discarded_tiles=0
+        tiles_to_process=number_of_tiles,
+        tiles_processed=0,
+        successful_tiles=0,
+        progress=0,
+        message="Image uploaded successfully. Processing will start shortly."
     )
     
     # Start background processing
-    background_tasks.add_task(process_tiles_pipeline, job_id)
+    background_tasks.add_task(process_cloud_detection, job_id, image, tile_size)
     
-    return processing_jobs[job_id]
+    return JobResponse(
+        job_id=job_id,
+        status="pending",
+        message="Cloud detection job created successfully"
+    )
 
-@app.get("/job-status/{job_id}", response_model=ProcessingStatus, tags=["Job Management"])
+@app.post("/submit-image/forest-detection", response_model=JobResponse, tags=["Submit Image"])
+async def submit_image_forest_detection(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...)
+):
+    """
+    Submit a satellite image for forest detection analysis.
+    
+    **Processing Flow:**
+    1. Upload and validate satellite image
+    2. Create asynchronous processing job
+    3. Return job ID for tracking
+    
+    **Input:**
+    - Satellite image file (supported formats: .npy, .tiff, .tif)
+    - Image should contain vegetation indices (NDVI, EVI) for optimal forest detection
+    
+    **Output:**
+    - Job ID for tracking processing status
+    - Estimated processing time
+    
+    **Next Steps:**
+    1. Use job ID to check processing status with `/job-status/{job_id}`
+    2. Once completed, retrieve result with `/get-result/{job_id}`
+    
+    Args:
+        file (UploadFile): Satellite image file for forest detection
+        
+    Returns:
+        JobResponse: Job information including job_id for tracking progress
+    """
+    job_id = str(uuid.uuid4())
+    
+    # Validate file format
+    file_extension = os.path.splitext(file.filename)[1].lower()
+    if file_extension not in allowed_formats:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unsupported file format. Allowed: {allowed_formats}"
+        )
+    
+    # Create processing job
+    processing_jobs[job_id] = JobStatus(
+        job_id=job_id,
+        task="forest_detection",
+        status="pending",
+        created_at=datetime.now(),
+        completed_at=None,
+        progress=0,
+        message="Image uploaded successfully. Processing will start shortly."
+    )
+    
+    # Start background processing
+    background_tasks.add_task(process_forest_detection, job_id, file)
+    
+    return JobResponse(
+        job_id=job_id,
+        status="pending",
+        message="Forest detection job created successfully",
+        estimated_time=180  # 3 minutes
+    )
+
+@app.post("/submit-image/fire-prediction", response_model=JobResponse, tags=["Submit Image"])
+async def submit_image_fire_prediction(
+    background_tasks: BackgroundTasks,
+    file: UploadFile = File(...)
+):
+    """
+    Submit a satellite image for fire risk prediction analysis.
+    
+    **Processing Flow:**
+    1. Upload and validate satellite image
+    2. Create asynchronous processing job
+    3. Return job ID for tracking
+    
+    **Input:**
+    - Satellite image file (supported formats: .npy, .tiff, .tif)
+    - Image should contain multi-spectral bands including thermal for optimal fire prediction
+    - Additional metadata (weather data, elevation) can improve predictions
+    
+    **Output:**
+    - Job ID for tracking processing status
+    - Estimated processing time
+    - Automatic email alerts for high-risk areas
+    
+    **Next Steps:**
+    1. Use job ID to check processing status with `/job-status/{job_id}`
+    2. Once completed, retrieve result with `/get-result/{job_id}`
+    
+    Args:
+        file (UploadFile): Satellite image file for fire risk prediction
+        
+    Returns:
+        JobResponse: Job information including job_id for tracking progress
+    """
+    job_id = str(uuid.uuid4())
+    
+    # Validate file format
+    file_extension = os.path.splitext(file.filename)[1].lower()
+    if file_extension not in allowed_formats:
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Unsupported file format. Allowed: {allowed_formats}"
+        )
+    
+    # Create processing job
+    processing_jobs[job_id] = JobStatus(
+        job_id=job_id,
+        task="fire_prediction",
+        status="pending",
+        created_at=datetime.now(),
+        completed_at=None,
+        progress=0,
+        message="Image uploaded successfully. Processing will start shortly."
+    )
+    
+    # Start background processing
+    background_tasks.add_task(process_fire_prediction, job_id, file)
+    
+    return JobResponse(
+        job_id=job_id,
+        status="pending",
+        message="Fire prediction job created successfully",
+        estimated_time=300  # 5 minutes
+    )
+
+# ============================================================================
+# STEP 2 & 3: CHECK STATUS - Monitor processing progress
+# ============================================================================
+
+@app.get("/job-status/{job_id}", response_model=JobStatus, tags=["Check Status"])
 def get_job_status(job_id: str):
     """
-    Get the current status of a processing job.
+    Check the current status of a processing job.
     
-    This endpoint allows clients to check the progress of their image processing job,
-    including how many tiles have been processed and current status.
+    **Status Values:**
+    - `pending`: Job created, waiting to start processing
+    - `processing`: Job is currently being processed
+    - `completed`: Job finished successfully, result available
+    - `failed`: Job failed due to error
+    
+    **Progress Tracking:**
+    - Progress percentage (0-100%)
+    - Detailed status messages
+    - Processing time information
+    
+    This endpoint should be polled regularly until status becomes `completed` or `failed`.
     
     Args:
         job_id (str): Unique identifier for the processing job
         
     Returns:
-        ProcessingStatus: Current job status and progress information
+        JobStatus: Current job status and progress information
         
     Raises:
         HTTPException: If job_id is not found
@@ -163,332 +349,126 @@ def get_job_status(job_id: str):
     
     return processing_jobs[job_id]
 
-@app.post("/cloud-masking/{job_id}", tags=["Cloud Processing"])
-async def run_cloud_masking(job_id: str):
-    """
-    Run cloud masking on all tiles for a specific job.
-    
-    This endpoint:
-    1. Processes each tile to detect cloud coverage
-    2. Calculates cloud percentage for each tile
-    3. Marks tiles as discarded if cloud coverage exceeds threshold
-    4. Updates tile status and cloud information
-    5. Saves cleaned (cloud-free) tiles for further processing
-    
-    Args:
-        job_id (str): Job identifier to process tiles for
-        
-    Returns:
-        dict: Summary of cloud masking results including number of clean/discarded tiles
-        
-    Raises:
-        HTTPException: If job not found or job is not in correct status
-    """
-    if job_id not in processing_jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
-    job = processing_jobs[job_id]
-    if job.status != "processing":
-        raise HTTPException(status_code=400, detail="Job must be in processing status")
-    
-    # TODO: Implement cloud masking logic here
-    # - Load each tile image
-    # - Apply cloud detection algorithm (e.g., threshold-based, ML model)
-    # - Calculate cloud percentage per tile
-    # - Apply cloud mask to remove cloudy pixels
-    # - Mark tiles as discarded if cloud coverage > threshold (e.g., 30%)
-    # - Save cleaned tiles and update tile metadata
-    # - Integration point: Use utils/clouddetector.py functions
-    
-    # Mock processing results
-    clean_tiles = []
-    discarded_tiles = []
-    
-    # Simulate cloud masking results
-    for i in range(job.total_tiles):
-        tile_id = f"{job_id}_tile_{i}"
-        # Mock cloud detection results
-        cloud_percentage = 25.0 if i % 4 != 0 else 75.0  # Mock: every 4th tile is very cloudy
-        is_discarded = cloud_percentage > 50.0
-        
-        tile_info = TileInfo(
-            tile_id=tile_id,
-            position=(i // 8, i % 8),  # Assuming 8x8 grid
-            has_clouds=cloud_percentage > 5.0,
-            cloud_percentage=cloud_percentage,
-            is_discarded=is_discarded,
-            vegetation_detected=False,  # Will be set in vegetation detection step
-            fire_risk_score=0.0  # Will be set in fire risk prediction step
-        )
-        
-        if is_discarded:
-            discarded_tiles.append(tile_info)
-        else:
-            clean_tiles.append(tile_info)
-        
-        tile_data[tile_id] = tile_info
-    
-    # Update job status
-    job.discarded_tiles = len(discarded_tiles)
-    job.processed_tiles = len(clean_tiles)
-    
-    return {
-        "job_id": job_id,
-        "total_tiles": job.total_tiles,
-        "clean_tiles": len(clean_tiles),
-        "discarded_tiles": len(discarded_tiles),
-        "cloud_masking_complete": True,
-        "clean_tile_ids": [tile.tile_id for tile in clean_tiles],
-        "discarded_tile_ids": [tile.tile_id for tile in discarded_tiles]
-    }
+# ============================================================================
+# STEP 4: GET RESULT - Retrieve processed image
+# ============================================================================
 
-@app.post("/vegetation-detection/{job_id}", tags=["Vegetation Analysis"])
-async def detect_vegetation(job_id: str):
+@app.get("/get-result/{job_id}", response_model=ProcessedImageResponse, tags=["Get Result"])
+def get_processing_result(job_id: str):
     """
-    Detect vegetation presence on clean (cloud-free) tiles.
+    Retrieve the result of a completed processing job.
     
-    This endpoint:
-    1. Processes only clean tiles (non-discarded) from cloud masking step
-    2. Applies vegetation detection algorithms (e.g., NDVI, ML models)
-    3. Updates tile metadata with vegetation presence information
-    4. Prepares tiles for fire risk prediction
+    **Available when job status is `completed`**
+    
+    **Returns:**
+    - URL to download processed image
+    - Processing metadata and statistics
+    - Analysis results and confidence scores
+    
+    **Result Types by Analysis:**
+    
+    **Cloud Detection:**
+    - Binary cloud mask overlay
+    - Cloud coverage percentage
+    - Clear areas highlighted
+    
+    **Forest Detection:**
+    - Forest area boundaries
+    - Vegetation indices (NDVI, EVI)
+    - Forest type classification
+    
+    **Fire Prediction:**
+    - Fire risk heatmap
+    - Risk level classifications
+    - Vulnerable area identification
+    - Automatic alerts for high-risk zones
     
     Args:
-        job_id (str): Job identifier to process vegetation detection for
+        job_id (str): Job identifier to get results for
         
     Returns:
-        dict: Vegetation detection results including tiles with/without vegetation
+        ProcessedImageResponse: Complete processing results including download URL
         
     Raises:
-        HTTPException: If job not found or cloud masking not completed
-    """
-    if job_id not in processing_jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
-    # Get clean tiles for this job
-    job_tiles = [tile for tile_id, tile in tile_data.items() if tile_id.startswith(job_id) and not tile.is_discarded]
-    
-    if not job_tiles:
-        raise HTTPException(status_code=400, detail="No clean tiles available. Run cloud masking first.")
-    
-    # TODO: Implement vegetation detection logic here
-    # - Load clean tile images
-    # - Calculate vegetation indices (NDVI, EVI, etc.)
-    # - Apply vegetation classification algorithms
-    # - Determine vegetation presence/absence and type
-    # - Update tile metadata with vegetation information
-    # - Integration point: Use existing vegetation detection functions
-    
-    vegetation_tiles = []
-    non_vegetation_tiles = []
-    
-    # Mock vegetation detection
-    for tile in job_tiles:
-        # Mock: assume 70% of clean tiles have vegetation
-        has_vegetation = hash(tile.tile_id) % 10 < 7
-        tile.vegetation_detected = has_vegetation
-        
-        if has_vegetation:
-            vegetation_tiles.append(tile)
-        else:
-            non_vegetation_tiles.append(tile)
-    
-    return {
-        "job_id": job_id,
-        "processed_tiles": len(job_tiles),
-        "vegetation_tiles": len(vegetation_tiles),
-        "non_vegetation_tiles": len(non_vegetation_tiles),
-        "vegetation_detection_complete": True,
-        "vegetation_tile_ids": [tile.tile_id for tile in vegetation_tiles],
-        "non_vegetation_tile_ids": [tile.tile_id for tile in non_vegetation_tiles]
-    }
-
-@app.post("/fire-risk-prediction/{job_id}", response_model=FireRiskHeatmap, tags=["Fire Risk Analysis"])
-async def predict_fire_risk(job_id: str):
-    """
-    Predict fire risk on processed tiles and generate heatmap for the entire image.
-    
-    This endpoint:
-    1. Processes tiles that have completed cloud masking and vegetation detection
-    2. Applies fire risk prediction models to each clean tile
-    3. Generates fire risk scores (0.0 to 1.0 scale)
-    4. Creates a heatmap visualization for the entire original image
-    5. Uses black squares for discarded tiles in the heatmap
-    6. Returns heatmap URL and detailed metadata
-    
-    Args:
-        job_id (str): Job identifier to generate fire risk prediction for
-        
-    Returns:
-        FireRiskHeatmap: Complete fire risk analysis including heatmap URL and metadata
-        
-    Raises:
-        HTTPException: If job not found or previous steps not completed
-    """
-    if job_id not in processing_jobs:
-        raise HTTPException(status_code=404, detail="Job not found")
-    
-    # Get all tiles for this job
-    job_tiles = [tile for tile_id, tile in tile_data.items() if tile_id.startswith(job_id)]
-    
-    if not job_tiles:
-        raise HTTPException(status_code=400, detail="No tiles found. Complete previous processing steps first.")
-    
-    # TODO: Implement fire risk prediction logic here
-    # - Load processed tile data (clean tiles with vegetation info)
-    # - Apply fire risk prediction models (ML models, rule-based systems)
-    # - Consider factors: vegetation type, moisture, weather data, terrain
-    # - Generate risk scores for each tile
-    # - Integration point: Use FirePredictionModel/train_test.py and unet.py
-    
-    # TODO: Implement heatmap generation logic here
-    # - Create grid representing original image tile layout
-    # - Assign colors based on fire risk scores (e.g., green=low, red=high)
-    # - Use black color for discarded tiles
-    # - Generate heatmap image and save to static files
-    # - Return URL to access heatmap image
-    
-    # Mock fire risk prediction
-    high_risk_tiles_count = 0
-    for tile in job_tiles:
-        if not tile.is_discarded and tile.vegetation_detected:
-            # Higher risk for vegetation tiles
-            tile.fire_risk_score = min(0.8, max(0.2, hash(tile.tile_id) % 100 / 100.0))
-        elif not tile.is_discarded:
-            # Lower risk for non-vegetation tiles
-            tile.fire_risk_score = min(0.3, max(0.0, hash(tile.tile_id) % 50 / 100.0))
-        else:
-            # No score for discarded tiles
-            tile.fire_risk_score = 0.0
-        
-        # Count high risk tiles
-        if tile.fire_risk_score > 0.7:
-            high_risk_tiles_count += 1
-    
-    # Mock heatmap generation
-    heatmap_filename = f"heatmap_{job_id}.png"
-    heatmap_url = f"/download-heatmap/{job_id}"
-    
-    # Calculate grid dimensions (assuming square grid for simplicity)
-    total_tiles = len(job_tiles)
-    grid_size = int(total_tiles ** 0.5)
-    grid_dimensions = (grid_size, grid_size)
-    
-    # Update job as completed
-    processing_jobs[job_id].status = "completed"
-    processing_jobs[job_id].completed_at = datetime.now()
-    
-    # Generate metadata
-    metadata = {
-        "processing_date": datetime.now().isoformat(),
-        "total_tiles": len(job_tiles),
-        "clean_tiles": len([t for t in job_tiles if not t.is_discarded]),
-        "discarded_tiles": len([t for t in job_tiles if t.is_discarded]),
-        "vegetation_tiles": len([t for t in job_tiles if t.vegetation_detected]),
-        "high_risk_tiles": len([t for t in job_tiles if t.fire_risk_score > 0.7]),
-        "medium_risk_tiles": len([t for t in job_tiles if 0.3 < t.fire_risk_score <= 0.7]),
-        "low_risk_tiles": len([t for t in job_tiles if 0.0 < t.fire_risk_score <= 0.3]),
-        "average_risk_score": sum(t.fire_risk_score for t in job_tiles if not t.is_discarded) / len([t for t in job_tiles if not t.is_discarded]) if job_tiles else 0
-    }
-    
-    # Send email alert if high fire risk is detected
-    # High risk threshold: more than 20% of tiles have high risk score (>0.7) or average risk > 0.6
-    high_risk_percentage = (metadata["high_risk_tiles"] / metadata["clean_tiles"]) * 100 if metadata["clean_tiles"] > 0 else 0
-    average_risk = metadata["average_risk_score"]
-    
-    if high_risk_percentage > 20 or average_risk > 0.6:
-        try:
-            # TODO: Customize email content based on specific risk analysis
-            # - Include location information if available
-            # - Add risk level details and recommendations
-            # - Attach heatmap image if generated
-            send_mail(
-                subject="🔥 URGENT: High Fire Risk Detected - Flame Sentinels Alert",
-                high_risk_percentage=high_risk_percentage,
-                average_risk=average_risk,
-                job_id=job_id
-            )
-            print(f"High fire risk alert sent for job {job_id}: {high_risk_percentage:.1f}% high-risk tiles, avg risk: {average_risk:.3f}")
-        except Exception as e:
-            print(f"Failed to send fire risk alert email: {e}")
-            # Don't fail the entire request if email fails
-    
-    return FireRiskHeatmap(
-        job_id=job_id,
-        grid_dimensions=grid_dimensions,
-        tiles=job_tiles,
-        heatmap_url=heatmap_url,
-        metadata=metadata
-    )
-
-@app.get("/download-heatmap/{job_id}", tags=["File Download"])
-async def download_heatmap(job_id: str):
-    """
-    Download the generated fire risk heatmap image.
-    
-    This endpoint serves the generated heatmap image file for a completed job.
-    The heatmap shows fire risk levels across the original image with:
-    - Color coding for risk levels (green=low, yellow=medium, red=high)
-    - Black squares for discarded tiles (high cloud coverage)
-    
-    Args:
-        job_id (str): Job identifier to download heatmap for
-        
-    Returns:
-        FileResponse: The heatmap image file
-        
-    Raises:
-        HTTPException: If job not found or heatmap not generated
+        HTTPException: If job not found or not completed
     """
     if job_id not in processing_jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     
     job = processing_jobs[job_id]
     if job.status != "completed":
-        raise HTTPException(status_code=400, detail="Heatmap not ready. Complete fire risk prediction first.")
+        raise HTTPException(
+            status_code=400, 
+            detail=f"Job not completed. Current status: {job.status}"
+        )
     
-    # TODO: Implement actual file serving logic here
-    # - Check if heatmap file exists
-    # - Return FileResponse with proper headers
-    # - Handle file not found cases
+    if job_id not in processed_images:
+        raise HTTPException(status_code=404, detail="Processed image not found")
     
-    heatmap_path = f"static/heatmaps/heatmap_{job_id}.png"
-    
-    # For demo purposes, return a placeholder response
-    if not os.path.exists(heatmap_path):
-        raise HTTPException(status_code=404, detail="Heatmap file not found")
-    
-    return FileResponse(
-        path=heatmap_path,
-        media_type="image/png",
-        filename=f"fire_risk_heatmap_{job_id}.png"
-    )
+    return processed_images[job_id]
 
-@app.get("/tile-details/{tile_id}", response_model=TileInfo, tags=["Tile Management"])
-def get_tile_details(tile_id: str):
+# ============================================================================
+# STEP 5: DOWNLOAD IMAGE - Get processed image file
+# ============================================================================
+
+@app.get("/download-image/{job_id}", tags=["Download Image"])
+async def download_processed_image(job_id: str):
     """
-    Get detailed information about a specific tile.
+    Download the processed image file.
     
-    This endpoint provides comprehensive information about a single tile including:
-    - Position in the original image grid
-    - Cloud coverage information
-    - Vegetation detection results
-    - Fire risk score
-    - Processing status
+    **File Formats:**
+    - PNG: For visualization images (heatmaps, overlays)
+    - TIFF: For analysis results with georeferencing
+    - NPY: For raw numerical arrays
+    
+    **File Naming Convention:**
+    - `{task}_{job_id}_result.{ext}`
+    - Example: `fire_prediction_abc123_result.png`
     
     Args:
-        tile_id (str): Unique identifier for the tile
+        job_id (str): Job identifier to download image for
         
     Returns:
-        TileInfo: Detailed tile information
+        FileResponse: The processed image file
         
     Raises:
-        HTTPException: If tile not found
+        HTTPException: If job not found or file not available
     """
-    if tile_id not in tile_data:
-        raise HTTPException(status_code=404, detail="Tile not found")
+    if job_id not in processing_jobs:
+        raise HTTPException(status_code=404, detail="Job not found")
     
-    return tile_data[tile_id]
+    job = processing_jobs[job_id]
+    if job.status != "completed":
+        raise HTTPException(status_code=400, detail="Image not ready for download")
+    
+    # Get file path based on task type
+    task = job.task
+    image_path = f"static/processed/{task}_{job_id}_result.png"
+    
+    if not os.path.exists(image_path):
+        raise HTTPException(status_code=404, detail="Processed image file not found")
+    
+    return FileResponse(
+        path=image_path,
+        media_type="image/png",
+        filename=f"{task}_{job_id}_result.png"
+    )
+
+# ============================================================================
+# JOB MANAGEMENT ENDPOINTS
+# ============================================================================
+
+@app.get("/jobs", response_model=List[JobStatus], tags=["Job Management"])
+def list_all_jobs():
+    """
+    List all processing jobs with their current status.
+    
+    Useful for monitoring and administration purposes.
+    
+    Returns:
+        List[JobStatus]: List of all jobs with their status information
+    """
+    return list(processing_jobs.values())
 
 @app.delete("/job/{job_id}", tags=["Job Management"])
 def delete_job(job_id: str):
@@ -497,86 +477,346 @@ def delete_job(job_id: str):
     
     This endpoint:
     1. Removes job from processing queue
-    2. Deletes all associated tile data
-    3. Removes generated files (tiles, heatmaps, etc.)
-    4. Cleans up temporary storage
+    2. Deletes processed image files
+    3. Cleans up temporary storage
     
     Args:
         job_id (str): Job identifier to delete
         
     Returns:
         dict: Deletion confirmation message
-        
-    Raises:
-        HTTPException: If job not found
     """
     if job_id not in processing_jobs:
         raise HTTPException(status_code=404, detail="Job not found")
     
-    # TODO: Implement cleanup logic here
-    # - Delete tile files from storage
-    # - Remove heatmap files
-    # - Clean up temporary directories
-    # - Remove from database (if using persistent storage)
-    
-    # Remove from in-memory storage
+    # Remove from storage
     del processing_jobs[job_id]
+    if job_id in processed_images:
+        del processed_images[job_id]
     
-    # Remove associated tile data
-    tile_ids_to_remove = [tile_id for tile_id in tile_data.keys() if tile_id.startswith(job_id)]
-    for tile_id in tile_ids_to_remove:
-        del tile_data[tile_id]
+    # TODO: Clean up files from disk
     
-    return {"message": f"Job {job_id} and all associated data deleted successfully"}
+    return {"message": f"Job {job_id} deleted successfully"}
 
-@app.get("/jobs", response_model=List[ProcessingStatus], tags=["Job Management"])
-def list_all_jobs():
+# ============================================================================
+# FILE CLEANUP FUNCTIONS
+# ============================================================================
+
+@app.delete("/cleanup", tags=["File Management"])
+def cleanup_files():
     """
-    List all processing jobs with their current status.
+    Clean up temporary files and folders used during processing.
     
-    This endpoint provides an overview of all jobs in the system,
-    useful for monitoring and administration purposes.
-    
+    This endpoint:
+    1. Deletes all files in the RAW_IMAGES_PATH
+    2. Deletes all files in the CLOUD_IMAGES_PATH
+    3. Deletes all files in the TILES_IMAGES_PATH
+    4. Deletes all files in the FOREST_IMAGES_PATH
+    5. Deletes all files in the FIRE_IMAGES_PATH
+    6. Deletes all files in the METADATA_FOLDER
+    7. Deletes all files in the DISPLAY_FOLDER
+
     Returns:
-        List[ProcessingStatus]: List of all jobs with their status information
+        dict: Cleanup confirmation message
     """
-    return list(processing_jobs.values())
+    try:
+        shutil.rmtree(RAW_IMAGES_PATH)
+        shutil.rmtree(CLOUD_IMAGES_PATH)
+        shutil.rmtree(TILES_IMAGES_PATH)
+        shutil.rmtree(FOREST_IMAGES_PATH)
+        shutil.rmtree(FIRE_IMAGES_PATH)
+        shutil.rmtree(METADATA_FOLDER)
+        shutil.rmtree(DISPLAY_FOLDER)
+        
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Error cleaning up files: {e}")
 
-async def process_tiles_pipeline(job_id: str):
+    return {"message": "Temporary files cleaned up successfully"}
+
+# ============================================================================
+# BACKGROUND PROCESSING FUNCTIONS
+# ============================================================================
+
+async def process_cloud_detection(job_id: str, image: np.ndarray, tiles_size: int):
     """
-    Background task to orchestrate the complete tile processing pipeline.
+    Background task for cloud detection processing.
     
-    This function:
-    1. Updates job status to "processing"
-    2. Coordinates the execution of cloud masking, vegetation detection, and fire risk prediction
-    3. Handles errors and updates job status accordingly
-    4. Can be extended to include email notifications or webhooks
+    **Processing Steps:**
+    1. Load and validate satellite image
+    2. Apply cloud detection algorithms
+    3. Generate cloud mask overlay
+    4. Calculate cloud coverage statistics
+    5. Save processed image and metadata
+    
+    **Algorithms Used:**
+    - Threshold-based cloud detection
+    - Machine learning cloud classification
+    - Multi-spectral band analysis
+    
+    **Output Products:**
+    - Binary cloud mask
+    - Cloud coverage percentage
+    - Clear area visualization
     
     Args:
-        job_id (str): Job identifier to process
+        job_id (str): Job identifier
+        file (UploadFile): Input satellite image
     """
     try:
         # Update job status
         processing_jobs[job_id].status = "processing"
+        processing_jobs[job_id].message = "Loading image data..."
+
+        file_name = job_id + "_raw.npy"
+        FILE_PATH = os.path.join(RAW_IMAGES_PATH, file_name)
+
+        print(f"Saving raw image to {FILE_PATH}")
+        print(f"Image shape: {image.shape}")
+
+        np.save(FILE_PATH, image)
+
+        metadata = preprocessing.extract_tiles_with_padding(FILE_PATH, job_id, (tiles_size, tiles_size, image.shape[2]), TILES_IMAGES_PATH)
+
+        # Save metadata for debugging purposes
+        metadata.to_excel(os.path.join(METADATA_FOLDER, f"{job_id}_metadata.xlsx"), index=False)
+
+        print("Images loaded and tiled")
+
+        processing_jobs[job_id].message = "Running cloud detection..."
+
+        for i in range(metadata.shape[0]):
+            tile_path = os.path.join(TILES_IMAGES_PATH, f"{job_id}_tile_{metadata['tile_coordinates'][i]}.npy")
+            
+            result, cloud_mask, perc_cloudy = cloud_detection.is_cloudy(tile_path, job_id=job_id, cloud_threshold=0.5)
+
+            cloudy = result['cloudy_tiles'] > 0
+
+            metadata.at[i, 'cloud?'] = cloudy
+            metadata.at[i, 'cloud_percentage'] = perc_cloudy
+
+            processing_jobs[job_id].tiles_processed += 1
+            processing_jobs[job_id].successful_tiles += result['clean_tiles']
+            processing_jobs[job_id].progress = int((processing_jobs[job_id].tiles_processed / metadata.shape[0]) * 100)
+
+            # TODO: Display image with cloud mask overlay and save it in display
+            # TODO: Save cloud mask.
         
-        # TODO: Implement complete pipeline orchestration here
-        # - Call cloud masking functions
-        # - Call vegetation detection functions  
-        # - Call fire risk prediction functions
-        # - Handle intermediate results and error states
-        # - Update progress incrementally
-        # - Send notifications on completion/failure
-        
-        # Simulate processing time
-        await asyncio.sleep(2)
-        
-        # For demo purposes, keep job in processing state
-        # In real implementation, this would coordinate all processing steps
+        # Store processed image metadata
+        processing_time = (datetime.now() - processing_jobs[job_id].created_at).total_seconds()
+        processed_images[job_id] = ProcessedImageResponse(
+            job_id=job_id,
+            task="cloud_detection",
+            rgb_image_url=os.path.join(DISPLAY_FOLDER, f"{job_id}_rgb.png"),
+            cloud_image_url=os.path.join(DISPLAY_FOLDER, f"{job_id}_cloud.png"), 
+            forest_image_url=os.path.join(DISPLAY_FOLDER, f"{job_id}_forest.png"), # EMPTY FOR NOW
+            heatmap_image_url=os.path.join(DISPLAY_FOLDER, f"{job_id}_heatmap.png"), # EMPTY FOR NOW
+            metadata=metadata,
+            processing_time=processing_time
+        )
         
     except Exception as e:
-        # Handle processing errors
         processing_jobs[job_id].status = "failed"
-        # TODO: Log error details and notify user
+        processing_jobs[job_id].message = f"Processing failed: {str(e)}"
+        print(f"Error details: {str(e)}")
+
+async def process_forest_detection(job_id: str, image: np.ndarray):
+    """
+    Background task for forest detection processing.
+    
+    **Processing Steps:**
+    1. Load and validate satellite image
+    2. Calculate vegetation indices (NDVI, EVI, SAVI)
+    3. Apply forest classification algorithms
+    4. Identify forest boundaries and types
+    5. Generate forest cover map
+    
+    **Algorithms Used:**
+    - Vegetation index thresholding
+    - Random Forest classification
+    - Convolutional Neural Networks
+    - Object-based image analysis
+    
+    **Output Products:**
+    - Forest area boundaries
+    - Forest type classification
+    - Vegetation health assessment
+    - Deforestation change detection
+    
+    Args:
+        job_id (str): Job identifier
+        file (UploadFile): Input satellite image
+    """
+    try:
+        # Update job status
+        processing_jobs[job_id].status = "processing"
+        processing_jobs[job_id].progress = 10
+        processing_jobs[job_id].message = "Loading image data..."
+        
+        # TODO: Implement actual forest detection processing
+        # This is a skeleton function - implement the actual algorithms
+        
+        # Simulate processing steps
+        await asyncio.sleep(2)
+        processing_jobs[job_id].progress = 25
+        processing_jobs[job_id].message = "Calculating vegetation indices..."
+        
+        await asyncio.sleep(3)
+        processing_jobs[job_id].progress = 50
+        processing_jobs[job_id].message = "Applying forest classification..."
+        
+        await asyncio.sleep(3)
+        processing_jobs[job_id].progress = 75
+        processing_jobs[job_id].message = "Identifying forest boundaries..."
+        
+        await asyncio.sleep(2)
+        processing_jobs[job_id].progress = 100
+        processing_jobs[job_id].status = "completed"
+        processing_jobs[job_id].completed_at = datetime.now()
+        processing_jobs[job_id].message = "Forest detection completed successfully"
+        
+        # Store processed image metadata
+        processing_time = (datetime.now() - processing_jobs[job_id].created_at).total_seconds()
+        processed_images[job_id] = ProcessedImageResponse(
+            job_id=job_id,
+            task="forest_detection",
+            image_url=f"/download-image/{job_id}",
+            metadata={
+                "forest_coverage_percentage": 68.4,
+                "forest_types": {
+                    "deciduous": 32.1,
+                    "coniferous": 45.2,
+                    "mixed": 22.7
+                },
+                "ndvi_mean": 0.72,
+                "evi_mean": 0.58,
+                "processing_algorithm": "NDVI + Random Forest + CNN classification",
+                "confidence_score": 0.89,
+                "image_dimensions": [512, 512],
+                "vegetation_health": "Good"
+            },
+            processing_time=processing_time
+        )
+        
+    except Exception as e:
+        processing_jobs[job_id].status = "failed"
+        processing_jobs[job_id].message = f"Processing failed: {str(e)}"
+
+async def process_fire_prediction(job_id: str, file: UploadFile):
+    """
+    Background task for fire risk prediction processing.
+    
+    **Processing Steps:**
+    1. Load and validate satellite image
+    2. Extract environmental features (vegetation, moisture, temperature)
+    3. Apply fire risk prediction models
+    4. Generate risk probability maps
+    5. Identify high-risk zones
+    6. Send alerts for critical areas
+    
+    **Algorithms Used:**
+    - U-Net deep learning architecture
+    - Random Forest ensemble methods
+    - Weather integration models
+    - Topographic analysis
+    
+    **Output Products:**
+    - Fire risk probability heatmap
+    - Risk level classifications (Low/Medium/High/Critical)
+    - Vulnerable area identification
+    - Early warning alerts
+    
+    **Alert System:**
+    - Automatic email notifications for high-risk areas
+    - Risk threshold monitoring
+    - Emergency contact integration
+    
+    Args:
+        job_id (str): Job identifier
+        file (UploadFile): Input satellite image
+    """
+    try:
+        # Update job status
+        processing_jobs[job_id].status = "processing"
+        processing_jobs[job_id].progress = 10
+        processing_jobs[job_id].message = "Loading image data..."
+        
+        # TODO: Implement actual fire prediction processing using existing modules
+        # Integration points:
+        # - utils/fire_prediction/unet.py for deep learning models
+        # - utils/fire_prediction/train_test.py for model training/inference
+        # - utils/preprocessing/ for data preparation
+        
+        # Simulate processing steps
+        await asyncio.sleep(3)
+        processing_jobs[job_id].progress = 20
+        processing_jobs[job_id].message = "Extracting environmental features..."
+        
+        await asyncio.sleep(4)
+        processing_jobs[job_id].progress = 40
+        processing_jobs[job_id].message = "Running fire risk prediction model..."
+        
+        await asyncio.sleep(4)
+        processing_jobs[job_id].progress = 65
+        processing_jobs[job_id].message = "Generating risk probability maps..."
+        
+        await asyncio.sleep(2)
+        processing_jobs[job_id].progress = 85
+        processing_jobs[job_id].message = "Identifying high-risk zones..."
+        
+        await asyncio.sleep(2)
+        processing_jobs[job_id].progress = 100
+        processing_jobs[job_id].status = "completed"
+        processing_jobs[job_id].completed_at = datetime.now()
+        processing_jobs[job_id].message = "Fire prediction completed successfully"
+        
+        # Store processed image metadata
+        processing_time = (datetime.now() - processing_jobs[job_id].created_at).total_seconds()
+        
+        # Mock high-risk detection for email alert
+        high_risk_percentage = 23.5  # Simulate high risk area
+        average_risk_score = 0.68
+        
+        processed_images[job_id] = ProcessedImageResponse(
+            job_id=job_id,
+            task="fire_prediction",
+            image_url=f"/download-image/{job_id}",
+            metadata={
+                "risk_levels": {
+                    "low": 35.2,
+                    "medium": 41.3,
+                    "high": 18.1,
+                    "critical": 5.4
+                },
+                "average_risk_score": average_risk_score,
+                "high_risk_areas_percentage": high_risk_percentage,
+                "max_risk_score": 0.94,
+                "processing_algorithm": "U-Net + Environmental Features + Weather Data",
+                "confidence_score": 0.87,
+                "image_dimensions": [512, 512],
+                "alert_sent": False
+            },
+            processing_time=processing_time
+        )
+        
+        # Send email alert if high fire risk is detected
+        if high_risk_percentage > 20 or average_risk_score > 0.6:
+            try:
+                send_mail(
+                    subject="URGENT: High Fire Risk Detected - Satellite Analysis Alert",
+                    high_risk_percentage=high_risk_percentage,
+                    average_risk=average_risk_score,
+                    job_id=job_id
+                )
+                processed_images[job_id].metadata["alert_sent"] = True
+                processing_jobs[job_id].message += " | High-risk alert sent via email"
+                print(f"Fire risk alert sent for job {job_id}: {high_risk_percentage:.1f}% high-risk areas")
+            except Exception as e:
+                print(f"Failed to send fire risk alert email: {e}")
+        
+    except Exception as e:
+        processing_jobs[job_id].status = "failed"
+        processing_jobs[job_id].message = f"Processing failed: {str(e)}"
+
 
 if __name__ == "__main__":
     uvicorn.run("app:app", host="0.0.0.0", port=5001, reload=True)
