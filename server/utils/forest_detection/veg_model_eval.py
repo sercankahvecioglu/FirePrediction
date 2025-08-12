@@ -65,11 +65,23 @@ def ndvi_veg_detector(input_folder, ndvi_threshold=0.2, min_veg_percentage=15.0)
             if veg_percentage >= min_veg_percentage:
                 kept_files.append(npy_file)
             else:
+                # Remove input tile
                 os.remove(npy_file)
+                # Also remove corresponding label tile
+                label_fname = os.path.join(os.path.dirname(input_folder), 'TILES_LABELS', os.path.basename(npy_file))
+                if os.path.exists(label_fname):
+                    os.remove(label_fname)
                 removed_files.append(npy_file)
                 
         except Exception as e:
             print(f"Error processing {npy_file}: {e}")
+            # Remove input tile even on error
+            if os.path.exists(npy_file):
+                os.remove(npy_file)
+                # Also remove corresponding label tile
+                label_fname = os.path.join(os.path.dirname(input_folder), 'TILES_LABELS', os.path.basename(npy_file))
+                if os.path.exists(label_fname):
+                    os.remove(label_fname)
             removed_files.append(npy_file)
     
     return kept_files, removed_files
@@ -123,11 +135,23 @@ def veg_detector(input_folder, model_weights_path=None):
                 if predicted.item() == 1:
                     kept_files.append(npy_file)
                 else:
+                    # Remove input tile
                     os.remove(npy_file)
+                    # Also remove corresponding label tile
+                    label_fname = os.path.join(os.path.dirname(input_folder), 'TILES_LABELS', os.path.basename(npy_file))
+                    if os.path.exists(label_fname):
+                        os.remove(label_fname)
                     removed_files.append(npy_file)
                     
             except Exception as e:
                 print(f"Error processing {npy_file}: {e}")
+                # Remove input tile even on error
+                if os.path.exists(npy_file):
+                    os.remove(npy_file)
+                    # Also remove corresponding label tile
+                    label_fname = os.path.join(os.path.dirname(input_folder), 'TILES_LABELS', os.path.basename(npy_file))
+                    if os.path.exists(label_fname):
+                        os.remove(label_fname)
                 removed_files.append(npy_file)
     
     print(f"Processed {len(npy_files)} files")
