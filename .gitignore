@@ -3,6 +3,7 @@ DATASETS*
 TILES*
 TEST*
 LABELS*
+INPUT*
 *__pycache__*
 full_labels*
 PREDS_VS_LABELS
