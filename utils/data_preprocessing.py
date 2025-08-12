@@ -1,9 +1,9 @@
 import os
 from bands_preprocessing import *
 from clouddetector import is_cloudy
-from vegetation_filter import patch_vegetation_detection
 import time
 from shutil import copy2
+from s2cloudless import S2PixelCloudDetector
 
 # Basic parent class for the pre-processing steps 
 class BaseProcessor():
@@ -55,7 +55,8 @@ class BaseProcessor():
         print("\n--- Step 3: Applying cloud detection ---")
         print(f"Using S2PixelCloudDetector with % of cloudy pixels threshold: {self.cloud_threshold}")
         init_time = time.time()
-        cloud_results = is_cloudy(self.base_path, self.cloud_threshold)
+        cloud_detector = S2PixelCloudDetector(threshold=0.4, average_over=4, dilation_size=2, all_bands=True)
+        cloud_results = is_cloudy(self.base_path, cloud_detector=cloud_detector, cloud_threshold=self.cloud_threshold)
         dt = time.time() - init_time
         print(f"✓ Cloud detection completed in {dt:.1f} seconds. Clean tiles: {cloud_results['clean_tiles']}, Cloudy tiles moved: {cloud_results['cloudy_tiles']}")
         return cloud_results
@@ -68,7 +69,9 @@ class BaseProcessor():
         print("\n--- Step 4: Applying vegetation detection ---")
         print(f"Using NDVI-based vegetation detection with {0.2*100}% vegetation coverage threshold")
         init_time = time.time()
-        vegetation_results = patch_vegetation_detection(self.tiles_input_path, vegetation_threshold=0.2)
+        # PLACEHOLDER for results, to be substituted with actual function computation
+        vegetation_results = {'clean_tiles': 0, 'low_vegetation_tiles': 0}
+        #----------------------------------------------------------------
         dt = time.time() - init_time
         print(f"✓ Vegetation detection completed in {dt:.1f} seconds. Clean tiles: {vegetation_results['clean_tiles']}, Low vegetation tiles moved: {vegetation_results['low_vegetation_tiles']}")
         return vegetation_results

@@ -1,7 +1,6 @@
 import os
 import numpy as np
 import glob
-from scipy.ndimage import grey_closing
 
 BAND_ORDER = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B09', 'B10', 'B11', 'B12']
 
@@ -48,9 +47,6 @@ def extract_data_labels(pre_bands_fpath, post_bands_fpath, output_dir: str, mask
     if masking:
         # assign class 0 -> NO/LOW RISK, 1 -> MODERATE RISK, 2 -> HIGH RISK
         dnbr_map = np.where(dnbr_img < thresh[0], 0, np.where(dnbr_img < thresh[1], 1, 2))
-
-    # apply closing operation to get smoother label areas (without low value pixels inside high risk areas)
-    dnbr_map = grey_closing(dnbr_map, size=5)
 
     # add final channel dimension for later steps
     dnbr_map = dnbr_map[..., np.newaxis]
