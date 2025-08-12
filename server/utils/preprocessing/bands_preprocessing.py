@@ -1,6 +1,7 @@
 import os
 import numpy as np
 import glob
+import pandas as pd
 
 BAND_ORDER = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B09', 'B10', 'B11', 'B12']
 
@@ -76,10 +77,15 @@ def extract_tiles_with_padding(image_path, name, tile_size, path):
         - name: The name of the location of the image (needed for data organizational purposes)
         - tile_size: Size of each tile (height, width, channels)
         - path: Location where to save tiles
+
+    Returns: 
+        - metadata: Pandas DataFrame containing metadata for each tile
     """
     os.makedirs(path, exist_ok=True)
 
     image = np.load(image_path)
+
+    metadata = pd.DataFrame(columns=['tile_number', 'tile_name', 'tile_coordinates', 'cloud_percentage', 'cloud?', 'forest?'])
 
     h, w, c = image.shape
     ph, pw, pc = tile_size
@@ -90,17 +96,35 @@ def extract_tiles_with_padding(image_path, name, tile_size, path):
     
     # Pad with reflection to maintain natural patterns
     padded_image = np.pad(image, ((0, pad_h), (0, pad_w), (0, 0)), mode='reflect')
+
+    counter = 1
     
     # Extract non-overlapping tiles
     padded_h, padded_w, _ = padded_image.shape
     for i in range(0, padded_h, ph):
         for j in range(0, padded_w, pw):
+
+            metadata = pd.concat([
+                metadata,
+                pd.DataFrame([{
+                    'tile_number': counter,
+                    'tile_name': f'{name}_tile_{(i, j)}',
+                    'tile_coordinates': (i, j),
+                    'cloud?': None,
+                    'forest?': None
+                }])
+            ], ignore_index=True)
+
+            counter += 1
+
             tile = padded_image[i:i+ph, j:j+pw, :]
             np.save(os.path.join(path, f'{name}_tile_{(i, j)}'), tile)
 
     print("All tiles extracted correctly!")
 
     del image # free up RAM space
+
+    return metadata
 
 #--------------------------------------------------------------------------------
 
