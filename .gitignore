@@ -4,6 +4,7 @@ TILES*
 TEST*
 LABELS*
 INPUT*
+POST*
 *__pycache__*
 full_labels*
 PREDS_VS_LABELS
