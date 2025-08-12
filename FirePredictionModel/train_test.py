@@ -1,115 +1,12 @@
-import torch 
-import torch.nn as nn
-import torch.nn.functional as F
+import torch
 from torch.utils.data import DataLoader, random_split  
 from FirePredictionModel.unet import UNet
 import numpy as np
-from PIL import Image
 from tqdm import tqdm
 from sklearn.metrics import accuracy_score
 import os   
-from FirePredictionModel.geodata_extraction import *
 from FirePredictionModel.datasets import Sent2Dataset
-
-
-class MulticlassDiceLoss(nn.Module):
-    """Multiclass Dice Loss for Pytorch
-
-    Args:
-        predict: A tensor of logits, shape (batch_size, n_classes, height, width) output by the model
-        target: A tensor of shape (batch_size, height, width) containing class indices
-    """
-    def __init__(self):
-        super().__init__()
-        self.smooth = 1e-6  # parameter to avoid division by 0
-
-    def forward(self, predict, target):
-        # predict shape: (batch_size, n_classes, height, width)
-        # target shape: (batch_size, height, width)
-
-        batch_size, n_classes, height, width = predict.shape
-        
-        # get probabilities from logits
-        predict = torch.softmax(predict, dim=1)
-        
-        # convert target to one-hot encoding
-        target_one_hot = F.one_hot(target, num_classes=n_classes).permute(0, 3, 1, 2).float()   # permute to obtain (batch_size, n_classes, height, width)
-        
-        # flatten tensors for easier computation
-        predict = predict.view(batch_size, n_classes, -1)  # (batch_size, n_classes, H*W)
-        target_one_hot = target_one_hot.view(batch_size, n_classes, -1)  # (batch_size, n_classes, H*W)
-        
-        # compute dice coefficient for each class
-        intersection = (predict * target_one_hot).sum(dim=2)  # (batch_size, n_classes)
-        union = predict.sum(dim=2) + target_one_hot.sum(dim=2)  # (batch_size, n_classes)
-        
-        # dice coefficient: 2 * intersection / (union + smooth)
-        dice = (2.0 * intersection + self.smooth) / (union + self.smooth)
-        
-        # average across classes and batch
-        dice_loss = 1.0 - dice.mean()
-        
-        return dice_loss
-
-
-def compute_mean_iou(y_true, y_pred, n_classes=3):
-    """
-    Compute mean Intersection over Union (IoU) for multi-class segmentation
-    
-    Args:
-        y_true: True labels (flattened)
-        y_pred: Predicted labels (flattened) 
-        n_classes: Number of classes
-        
-    Returns:
-        mean_iou: Mean IoU across all classes
-    """
-    ious = []
-    
-    for class_id in range(n_classes):
-        # True positives, false positives, false negatives
-        tp = np.sum((y_true == class_id) & (y_pred == class_id))
-        fp = np.sum((y_true != class_id) & (y_pred == class_id))
-        fn = np.sum((y_true == class_id) & (y_pred != class_id))
-        
-        # IoU = TP / (TP + FP + FN)
-        iou = tp / (tp + fp + fn)
-        
-        ious.append(iou)
-    
-    return np.mean(ious)
-
-
-def compute_sensitivity_classes_1_2(y_true, y_pred):
-    """
-    Compute sensitivity (recall) for classes 1 and 2, averaged
-    
-    Args:
-        y_true: True labels (flattened)
-        y_pred: Predicted labels (flattened)
-        
-    Returns:
-        avg_sensitivity: Average sensitivity for classes 1 and 2
-    """
-    sensitivities = []
-    
-    for class_id in [1, 2]:
-        # True positives and false negatives
-        tp = np.sum((y_true == class_id) & (y_pred == class_id))
-        fn = np.sum((y_true == class_id) & (y_pred != class_id))
-        
-        # Sensitivity = TP / (TP + FN)
-        if tp + fn > 0:
-            sensitivity = tp / (tp + fn)
-        else:
-            sensitivity = 0.0  # No true positives exist for this class
-            
-        sensitivities.append(sensitivity)
-    
-    return np.mean(sensitivities)
-
-
-
+from FirePredictionModel.loss_metrics import GeneralizedDiceLoss, calculate_class_weights, compute_mean_iou, compute_sensitivity_classes_1_2
 
 # main train loop
 def train_model(model, train_loader, val_loader, criterion, optimizer, device, epochs=10):
@@ -217,8 +114,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
     print("\nTraining completed!")
     return model
 
-#----------------------------------------------------------
+#-----------------------------------------------------------------
 
+# test evaluation loop
 def evaluate_model(model, test_loader, device, filenames, output_dir='/home/dario/Desktop/FirePrediction/TEST_PREDS'):
     model.eval()
     all_preds = []
@@ -264,6 +162,10 @@ def evaluate_model(model, test_loader, device, filenames, output_dir='/home/dari
 
     print(f"\nTest Accuracy: {acc:.4f} | Test mIoU: {miou:.4f} | Test Sens(1,2): {sens_12:.4f}")
 
+
+#-------------------------main.py section-------------------------
+
+
 train_dataset = Sent2Dataset("/home/dario/Desktop/FirePrediction/TILES_INPUT_DATA", 
                              "/home/dario/Desktop/FirePrediction/TILES_LABELS")
 test_dataset = Sent2Dataset("/home/dario/Desktop/FirePrediction/TEST_INPUT_DATA",
@@ -277,33 +179,23 @@ train_subset, val_subset = random_split(train_dataset, [train_len, val_len], gen
 
 train_loader = DataLoader(train_subset, batch_size=16, shuffle=True)
 val_loader = DataLoader(val_subset, batch_size=16, shuffle=False)
-# -----------------------
+
+# calculate proper class weights (for weighted dice loss) based on inverse frequency from training data
+fire_class_weights = calculate_class_weights(train_loader, n_classes=3).to('cuda')
 
 n_channels = len(test_dataset.band_indices)
 test_filenames = test_dataset.input_list
 test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
-
-
-# architecture definition (setting n channels as following input data channels)
+# architecture definition (setting n channels as following input data bands channels)
 unet_model = UNet(n_channels, out_channels=3).to('cuda')
-
-"""
-# Calculate proper class weights based on inverse frequency
-# Class 0: 90.1%, Class 1: 6.5%, Class 2: 3.4%
-total_samples = 9443300 + 684978 + 357482
-class_0_weight = total_samples / (3 * 9443300)  # ≈ 0.37
-class_1_weight = total_samples / (3 * 684978)   # ≈ 5.11
-class_2_weight = total_samples / (3 * 357482)   # ≈ 9.78
-class_weights = torch.tensor([class_0_weight, class_1_weight, class_2_weight]).to('cuda')
-print(f"Calculated class weights: {class_weights}")
-"""
 
 # optimizer & loss definition 
 optimizer = torch.optim.Adam(unet_model.parameters(), lr=0.001, weight_decay=1e-4)  
-criterion = MulticlassDiceLoss()
+criterion = GeneralizedDiceLoss(class_weights=fire_class_weights)
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
+"""
 # For debugging, let's check the class distribution in the data
 print("Checking class distribution in training data...")
 class_counts = {0: 0, 1: 0, 2: 0}
@@ -317,12 +209,13 @@ for i, (x, y, coords) in enumerate(train_loader):
 
 total_pixels = sum(class_counts.values())
 print(f"Class distribution: {[(cls, count, f'{count/total_pixels*100:.1f}%') for cls, count in class_counts.items()]}")
-
+"""
 
 trained_model = train_model(unet_model, train_loader, val_loader, criterion, optimizer, device, 25)
-#---------------------------------------------------------------
+
+#-----------------------------------------------------------------
 
 # to reload previous model
-unet_model.load_state_dict(torch.load('/home/dario/Desktop/FirePrediction/best_prediction_model.pth', weights_only=True))
+unet_model.load_state_dict(torch.load('/home/dario/Desktop/FirePrediction/best_fireprediction_model.pth', weights_only=True))
 
 evaluate_model(unet_model, test_loader, 'cuda', test_filenames)
