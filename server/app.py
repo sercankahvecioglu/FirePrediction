@@ -2,6 +2,8 @@ import shutil
 from typing import List, Dict, Optional, Tuple
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import uvicorn
 import uuid
@@ -14,6 +16,9 @@ import numpy as np
 import pandas as pd
 import math
 import time
+import matplotlib.pyplot as plt
+import matplotlib
+matplotlib.use('Agg')  # Use non-interactive backend
 
 # ---- HOMEMADE LIBRARIES ---- #
 
@@ -34,6 +39,15 @@ app = FastAPI(
     title="Satellite Image Analysis API - Asynchronous Processing",
     description="API for processing satellite images with cloud detection, forest detection, and fire prediction using asynchronous job-based workflow",
     version="1.0.0"
+)
+
+# Add CORS middleware
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:8080"],  # Frontend URL
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 # Pydantic models for request/response schemas
@@ -64,7 +78,7 @@ class ProcessedImageResponse(BaseModel):
     cloud_image_url: str
     forest_image_url: str
     heatmap_image_url: str
-    metadata: pd.DataFrame
+    metadata: List[dict]
 
 # In-memory storage for demo purposes (use database in production)
 processing_jobs = {}
@@ -93,6 +107,9 @@ os.makedirs(FOREST_IMAGES_PATH, exist_ok=True)
 os.makedirs(FIRE_IMAGES_PATH, exist_ok=True)
 os.makedirs(METADATA_FOLDER, exist_ok=True)
 os.makedirs(DISPLAY_FOLDER, exist_ok=True)
+
+# Mount static files to serve processed images
+app.mount("/static/images", StaticFiles(directory=DISPLAY_FOLDER), name="images")
 
 # ---------------------- #
 
@@ -534,6 +551,95 @@ def cleanup_files():
     return {"message": "Temporary files cleaned up successfully"}
 
 # ============================================================================
+# IMAGE VISUALIZATION FUNCTIONS
+# ============================================================================
+
+def create_rgb_visualization(image: np.ndarray, job_id: str, output_path: str):
+    """
+    Create RGB visualization from satellite image.
+    Assumes bands are in order: R, G, B (first 3 bands)
+    """
+    try:
+        if image.shape[2] < 3:
+            raise ValueError("Image must have at least 3 bands for RGB visualization")
+        
+        # Extract RGB bands (typically bands 0, 1, 2)
+        rgb = image[:, :, :3]
+        
+        # Normalize to 0-1 range
+        rgb_normalized = np.zeros_like(rgb, dtype=np.float32)
+        for i in range(3):
+            band = rgb[:, :, i]
+            band_min, band_max = np.percentile(band, [2, 98])  # Use 2-98 percentile for contrast
+            rgb_normalized[:, :, i] = np.clip((band - band_min) / (band_max - band_min), 0, 1)
+        
+        # Create and save the plot
+        plt.figure(figsize=(10, 10))
+        plt.imshow(rgb_normalized)
+        plt.axis('off')
+        plt.title(f'RGB Visualization - {job_id}', fontsize=14, pad=20)
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
+        plt.close()
+        
+        print(f"RGB visualization saved to: {output_path}")
+        
+    except Exception as e:
+        print(f"Error creating RGB visualization: {e}")
+        # Create a placeholder image if RGB fails
+        create_placeholder_image(output_path, "RGB Visualization\nNot Available")
+
+def create_cloud_mask_visualization(metadata: pd.DataFrame, image_shape: tuple, job_id: str, output_path: str):
+    """
+    Create cloud mask visualization from tile metadata.
+    """
+    try:
+        # Create a binary mask based on cloud detection results
+        cloud_mask = np.zeros((image_shape[0], image_shape[1]), dtype=np.float32)
+        
+        for _, row in metadata.iterrows():
+            if pd.notna(row['cloud?']) and row['cloud?']:
+                coords = row['tile_coordinates']
+                if isinstance(coords, tuple) and len(coords) == 2:
+                    i, j = coords
+                    # Assuming tile size of 256x256 (you might need to adjust this)
+                    tile_size = 256
+                    end_i = min(i + tile_size, image_shape[0])
+                    end_j = min(j + tile_size, image_shape[1])
+                    cloud_mask[i:end_i, j:end_j] = row.get('cloud_percentage', 1.0)
+        
+        # Create visualization
+        plt.figure(figsize=(10, 10))
+        plt.imshow(cloud_mask, cmap='Blues', alpha=0.8)
+        plt.colorbar(label='Cloud Coverage')
+        plt.title(f'Cloud Detection Mask - {job_id}', fontsize=14, pad=20)
+        plt.axis('off')
+        plt.tight_layout()
+        plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
+        plt.close()
+        
+        print(f"Cloud mask visualization saved to: {output_path}")
+        
+    except Exception as e:
+        print(f"Error creating cloud mask visualization: {e}")
+        # Create a placeholder image if cloud mask fails
+        create_placeholder_image(output_path, "Cloud Mask\nNot Available")
+
+def create_placeholder_image(output_path: str, text: str):
+    """
+    Create a placeholder image with text when actual processing fails.
+    """
+    plt.figure(figsize=(10, 10))
+    plt.text(0.5, 0.5, text, fontsize=20, ha='center', va='center', 
+             bbox=dict(boxstyle="round,pad=0.3", facecolor="lightgray"))
+    plt.xlim(0, 1)
+    plt.ylim(0, 1)
+    plt.axis('off')
+    plt.tight_layout()
+    plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
+    plt.close()
+
+# ============================================================================
 # BACKGROUND PROCESSING FUNCTIONS
 # ============================================================================
 
@@ -598,21 +704,41 @@ async def process_cloud_detection(job_id: str, image: np.ndarray, tiles_size: in
             processing_jobs[job_id].successful_tiles += result['clean_tiles']
             processing_jobs[job_id].progress = int((processing_jobs[job_id].tiles_processed / metadata.shape[0]) * 100)
 
-            # TODO: Display image with cloud mask overlay and save it in display
-            # TODO: Save cloud mask.
+        # Generate visualization images after all tiles are processed
+        processing_jobs[job_id].message = "Generating visualization images..."
+        
+        # Create RGB visualization
+        rgb_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_rgb.png")
+        create_rgb_visualization(image, job_id, rgb_output_path)
+        
+        # Create cloud mask visualization
+        cloud_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_cloud.png")
+        create_cloud_mask_visualization(metadata, image.shape, job_id, cloud_output_path)
+        
+        # Create placeholder images for forest and fire (not implemented yet)
+        forest_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_forest.png")
+        create_placeholder_image(forest_output_path, "Forest Detection\nNot Available")
+        
+        fire_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_heatmap.png")
+        create_placeholder_image(fire_output_path, "Fire Prediction\nNot Available")
         
         # Store processed image metadata
         processing_time = (datetime.now() - processing_jobs[job_id].created_at).total_seconds()
         processed_images[job_id] = ProcessedImageResponse(
             job_id=job_id,
             task="cloud_detection",
-            rgb_image_url=os.path.join(DISPLAY_FOLDER, f"{job_id}_rgb.png"),
-            cloud_image_url=os.path.join(DISPLAY_FOLDER, f"{job_id}_cloud.png"), 
-            forest_image_url=os.path.join(DISPLAY_FOLDER, f"{job_id}_forest.png"), # EMPTY FOR NOW
-            heatmap_image_url=os.path.join(DISPLAY_FOLDER, f"{job_id}_heatmap.png"), # EMPTY FOR NOW
+            rgb_image_url=f"/static/images/{job_id}_rgb.png",
+            cloud_image_url=f"/static/images/{job_id}_cloud.png", 
+            forest_image_url=f"/static/images/{job_id}_forest.png", # EMPTY FOR NOW
+            heatmap_image_url=f"/static/images/{job_id}_heatmap.png", # EMPTY FOR NOW
             metadata=metadata,
             processing_time=processing_time
         )
+        
+        # Mark job as completed
+        processing_jobs[job_id].status = "completed"
+        processing_jobs[job_id].completed_at = datetime.now()
+        processing_jobs[job_id].message = "Cloud detection completed successfully"
         
     except Exception as e:
         processing_jobs[job_id].status = "failed"
