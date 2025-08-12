@@ -6,13 +6,8 @@ from FirePredictionModel.unet import UNet
 import numpy as np
 from PIL import Image
 from tqdm import tqdm
-from sklearn.metrics import accuracy_score, confusion_matrix
-from sklearn.model_selection import train_test_split
-import matplotlib.pyplot as plt
-import glob
+from sklearn.metrics import accuracy_score
 import os   
-import pickle
-import matplotlib
 from FirePredictionModel.geodata_extraction import *
 from FirePredictionModel.datasets import Sent2Dataset
 
@@ -24,18 +19,15 @@ class MulticlassDiceLoss(nn.Module):
         predict: A tensor of logits, shape (batch_size, n_classes, height, width) output by the model
         target: A tensor of shape (batch_size, height, width) containing class indices
     """
-    def __init__(self, n_classes=3):
+    def __init__(self):
         super().__init__()
         self.smooth = 1e-6  # parameter to avoid division by 0
-        self.n_classes = n_classes
 
     def forward(self, predict, target):
         # predict shape: (batch_size, n_classes, height, width)
         # target shape: (batch_size, height, width)
 
         batch_size, n_classes, height, width = predict.shape
-
-        assert self.n_classes == n_classes
         
         # get probabilities from logits
         predict = torch.softmax(predict, dim=1)
@@ -81,11 +73,8 @@ def compute_mean_iou(y_true, y_pred, n_classes=3):
         fn = np.sum((y_true == class_id) & (y_pred != class_id))
         
         # IoU = TP / (TP + FP + FN)
-        if tp + fp + fn > 0:
-            iou = tp / (tp + fp + fn)
-        else:
-            iou = 1.0  # Perfect score for classes not present in either true or pred
-            
+        iou = tp / (tp + fp + fn)
+        
         ious.append(iou)
     
     return np.mean(ious)
@@ -312,7 +301,7 @@ print(f"Calculated class weights: {class_weights}")
 
 # optimizer & loss definition 
 optimizer = torch.optim.Adam(unet_model.parameters(), lr=0.001, weight_decay=1e-4)  
-criterion = MulticlassDiceLoss(n_classes=3)
+criterion = MulticlassDiceLoss()
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
 # For debugging, let's check the class distribution in the data

@@ -1,11 +1,11 @@
 import numpy as np
 import os
 import glob
-from s2cloudless import S2PixelCloudDetector, download_bands_and_valid_data_mask
+from s2cloudless import S2PixelCloudDetector
 
 cloud_detector = S2PixelCloudDetector(threshold=0.4, average_over=4, dilation_size=2, all_bands=True)
 
-def is_cloudy(tiles_path:str, cloud_threshold:float = 0.5):
+def is_cloudy(tiles_path:str, cloud_detector = cloud_detector, cloud_threshold:float = 0.5):
     """
     Function to find cloudy tiles from s2cloudless's S2PixelCloudDetector and discard them from the tiles folder
 
