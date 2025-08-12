@@ -6,7 +6,7 @@ BAND_ORDER = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B0
 
 
 # extract the dNBR map (of values between 0 and 1) and the dNBR binary map
-def extract_data_labels(pre_bands_fpath, post_bands_fpath, output_dir: str, masking: bool = True, thresh: list = [0.2 ,0.4]):
+def extract_data_labels(pre_bands_fpath, post_bands_fpath, output_dir: str, masking: bool = True, thresh: list = [0.2 ,0.4], ndvi_thresh: float = 0.2):
     """
     Create data labels from Sentinel-2 images by considering the dNBR value (with NDVI masking)
     
@@ -17,6 +17,7 @@ def extract_data_labels(pre_bands_fpath, post_bands_fpath, output_dir: str, mask
         - masking: bool param to determine whether to mask to 0 pixels that are not vegetation, using dNBR
             or not to do it (as these will be later discarded)
         - thresh: list param of threshold values to determine the division into classes of th efinal map
+        - ndvi_thresh: float param for NDVI threshold to mask non-vegetation areas (default: 0.2)
 
     Returns:
         numpy.ndarray: dNBR normalized image with shape (height, width, 1)
@@ -24,15 +25,28 @@ def extract_data_labels(pre_bands_fpath, post_bands_fpath, output_dir: str, mask
     
     nbr_imgs = {}
 
-    # B08 is at index 7, B12 is at index 12 (we have B8A after B08)
-    pre_bands = np.load(pre_bands_fpath)[..., [7, 12]]
-    post_bands = np.load(post_bands_fpath)[..., [7, 12]]
+    # load pre and post bands - we need B04 (Red), B08 (NIR), and B12 (SWIR) for NDVI and NBR
+    # B04 is at index 3, B08 is at index 7, B12 is at index 12 (we have B8A after B08)
+    pre_bands = np.load(pre_bands_fpath)[..., [3, 7, 12]]  # B04, B08, B12
+    post_bands = np.load(post_bands_fpath)[..., [3, 7, 12]]  # B04, B08, B12
     
-    # Process both datasets
+    # calculate NDVI from pre-fire image for vegetation masking
+    pre_b04 = pre_bands[:, :, 0]  # Red band
+    pre_b08 = pre_bands[:, :, 1]  # NIR band
+    
+    # calculate NDVI: (NIR - Red) / (NIR + Red)
+    denom_ndvi = pre_b08 + pre_b04
+    denom_ndvi[denom_ndvi == 0] = 1e-6
+    ndvi_pre = (pre_b08 - pre_b04) / denom_ndvi
+    
+    # create vegetation mask: True for vegetation pixels (NDVI >= threshold)
+    vegetation_mask = ndvi_pre >= ndvi_thresh
+    
+    # process both datasets for NBR calculation
     for i, bands_data in enumerate([pre_bands, post_bands]):
         
-        b08_data = bands_data[:, :, 0] #B08
-        b12_data = bands_data[:, :, 1] #B12
+        b08_data = bands_data[:, :, 1]  # B08 (NIR)
+        b12_data = bands_data[:, :, 2]  # B12 (SWIR)
 
         # Calculate NBR
         denom_nbr = b08_data + b12_data
@@ -47,6 +61,9 @@ def extract_data_labels(pre_bands_fpath, post_bands_fpath, output_dir: str, mask
     if masking:
         # assign class 0 -> NO/LOW RISK, 1 -> MODERATE RISK, 2 -> HIGH RISK
         dnbr_map = np.where(dnbr_img < thresh[0], 0, np.where(dnbr_img < thresh[1], 1, 2))
+        
+        # apply NDVI-based vegetation masking: set non-vegetation pixels to class 0
+        dnbr_map = np.where(vegetation_mask, dnbr_map, 0)
 
     # add final channel dimension for later steps
     dnbr_map = dnbr_map[..., np.newaxis]

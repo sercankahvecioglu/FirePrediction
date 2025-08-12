@@ -119,11 +119,21 @@ class TrainDataProcessor(BaseProcessor):
         """Create dNBR label map"""
         pre_path = os.path.join(self.base_path, 'data', f'{self.dataset_name}_pre.npy')
         post_path = os.path.join(self.base_path, 'data', f'{self.dataset_name}_post.npy')
-        print("\n--- Step 1: Creating label map (dNBR) ---")
+        print("\n--- Step 1: Creating label map (dNBR with NDVI masking) ---")
         os.makedirs(self.full_labels_path, exist_ok=True)
         dnbr_path = extract_data_labels(pre_path, post_path, self.full_labels_path)
-        print("✓ dNBR label map created")
+        print("✓ dNBR label map with NDVI masking created")
         return dnbr_path
+    
+    def _extract_label_tiles(self):
+        """Extract tiles from the dNBR label map"""
+        dnbr_path = os.path.join(self.full_labels_path, 'dnbr_normalized.npy')
+        print("\n--- Step 2.5: Extracting label tiles from dNBR map ---")
+        init_time = time.time()
+        # Labels have 1 channel (height, width, 1)
+        extract_tiles_with_padding(dnbr_path, self.dataset_name, (*self.patch_size, 1), self.tiles_labels_path)
+        dt = time.time() - init_time
+        print(f"✓ label tiles extracted to {self.tiles_labels_path} in {dt:.1f} seconds")
     
     def run(self):
         print(f"=== Starting processing pipeline for dataset: {self.dataset_name} ===")
@@ -132,6 +142,7 @@ class TrainDataProcessor(BaseProcessor):
         self._copy_geospatial_info()
         self._create_labels()
         self._extract_tiles()
+        self._extract_label_tiles()
         cloud_results = self._apply_cloud_detection()
         vegetation_results = self._apply_vegetation_detection()
         self._extract_indices()
