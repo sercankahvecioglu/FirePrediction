@@ -12,11 +12,14 @@ import sys
 
 # ---- HOMEMADE LIBRARIES ---- #
 
-from send_mail import send_mail # Sending mail adverting higher fire risk
+from utils.mail.send_mail import send_mail # Sending mail adverting higher fire risk
 
 # Load from utils library
-
-from 
+from utils import cloud_detection
+from utils import fire_prediction  
+from utils import preprocessing
+from utils import forest_detection
+from utils import data_api 
 
 # Initialize FastAPI app with metadata
 app = FastAPI(
