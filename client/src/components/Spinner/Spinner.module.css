@@ -1,0 +1,27 @@
+.wrapper {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 9999px;
+  border: 3px solid hsl(var(--border));
+  border-top-color: hsl(var(--ring));
+  animation: spin 0.9s linear infinite;
+}
+
+.label {
+  font-size: 0.95rem;
+  color: hsl(var(--muted-foreground));
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation: none; }
+}

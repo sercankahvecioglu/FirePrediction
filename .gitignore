@@ -22,3 +22,5 @@ data_pipeline/utils/.env
 .gitignore
 .DS_Store
 data_pipeline/utils/temperature_extraction_output/~$temperature_extraction_summary_20250811_141637.xlsx
+client/node_modules/
+client/node_modules/*
