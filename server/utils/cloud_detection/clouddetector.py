@@ -17,10 +17,16 @@ def is_cloudy(tiles_path:str, cloud_detector = cloud_detector, cloud_threshold:f
         cloud_results (dict): dict of (clean_tiles_num, cloudy_tiles_num)
     """
     cloud_results = {'cloudy_tiles': 0, 'clean_tiles': 0}
+    processed_count = 0
+    
     for fname in glob.glob(os.path.join(tiles_path, 'TILES_INPUT_DATA', '*.npy')):
+        processed_count += 1
+        if processed_count % 200 == 0:
+            print(f"Processed {processed_count} tiles for cloud detection...")
+            
         tile = np.load(fname)
         if tile.shape[-1] != 13:
-            print("File has a n° of channels =\= 13 (probably it has already been processed). Cloud mask will not be calculated.")
+            print("File has a n° of channels diff. from 13 (probably it has already been processed). Cloud mask will not be calculated.")
             continue
         
         # Ensure tile has correct shape and data type
