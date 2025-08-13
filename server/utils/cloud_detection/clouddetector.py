@@ -5,7 +5,7 @@ from s2cloudless import S2PixelCloudDetector
 
 cloud_detector = S2PixelCloudDetector(threshold=0.4, average_over=4, dilation_size=2, all_bands=True)
 
-def is_cloudy(tile_path:str, cloud_detector = cloud_detector, cloud_threshold:float = 0.5, job_id:str = None):
+def is_cloudy(tile_path:str, cloud_detector = cloud_detector, cloud_threshold:float = 0.5, job_id:str = None, delete = False):
     """
     Function to find cloudy tiles from s2cloudless's S2PixelCloudDetector and discard them from the tiles folder
 
@@ -45,7 +45,7 @@ def is_cloudy(tile_path:str, cloud_detector = cloud_detector, cloud_threshold:fl
     perc_cloudy = cloudy_pixels / total_pixels
 
     # if the cloudy pixels % exceeds the threshold, discard the image
-    if perc_cloudy >= cloud_threshold:
+    if perc_cloudy >= cloud_threshold and delete:
         # remove image file from tiles folder
         os.remove(tile_path) 
         cloud_results['cloudy_tiles'] += 1
