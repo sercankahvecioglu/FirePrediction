@@ -4,7 +4,23 @@ uvicorn[standard]>=0.24.0
 python-multipart>=0.0.6
 pydantic>=2.4.0
 
+# Data processing and scientific computing
+numpy>=1.24.0
+pandas>=2.0.0
+matplotlib>=3.7.0
+pillow>=10.0.0
+
+# Machine learning and image processing (for future real integration)
+scikit-learn>=1.3.0
+opencv-python>=4.8.0
+
 # Google API dependencies for email alerts
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
+
+# Additional dependencies for satellite image processing
+# TODO: Add these when integrating with real algorithms:
+# tensorflow>=2.13.0  # For deep learning models (fire_prediction/unet.py)
+# rasterio>=1.3.0     # For satellite image reading
+# geopandas>=0.14.0   # For geographic data processing
