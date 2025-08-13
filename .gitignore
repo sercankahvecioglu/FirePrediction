@@ -4,6 +4,9 @@ TILES*
 TEST*
 LABELS*
 INPUT*
+inputs*
+labels*
+IMGS*
 POST*
 *__pycache__*
 full_labels*
