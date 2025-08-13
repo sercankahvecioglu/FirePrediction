@@ -30,13 +30,13 @@ class SimpleCNN(nn.Module):
     
 
 
-def ndvi_veg_detector(input_folder, ndvi_threshold=0.2, min_veg_percentage=15.0):
+def ndvi_veg_detector(input_folder, ndvi_threshold=0.3, min_veg_percentage=15.0):
     """
     Filter .npy files using NDVI threshold for vegetation detection
     
     Args:
         input_folder (str): Path to folder containing .npy files
-        ndvi_threshold (float): NDVI threshold (typically 0.2-0.4)
+        ndvi_threshold (float): NDVI threshold (typically 0.2-0.3)
         min_veg_percentage (float): Minimum percentage of vegetation pixels required (0-100)
     """
     npy_files = glob.glob(os.path.join(input_folder, "*.npy"))
@@ -45,12 +45,12 @@ def ndvi_veg_detector(input_folder, ndvi_threshold=0.2, min_veg_percentage=15.0)
     
     for npy_file in npy_files:
         try:
-            # Load image data [channels, height, width]
+            # Load image data [height, width, channels]
             image_data = np.load(npy_file)
             
             # Assuming NIR is channel 7 and Red is channel 3 (adjust indices as needed)
-            nir = image_data[7].astype(np.float32)
-            red = image_data[3].astype(np.float32)
+            nir = image_data[..., 7].astype(np.float32)
+            red = image_data[..., 3].astype(np.float32)
             
             # Calculate NDVI
             ndvi = np.divide(nir - red, nir + red, 
