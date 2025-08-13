@@ -1,10 +1,15 @@
 import os
+from .bands_preprocessing import *
 import sys
-# Add the parent directory to Python path
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from bands_preprocessing import *
-from cloud_detection.clouddetector import is_cloudy
-from forest_detection.veg_model_eval import veg_detector, ndvi_veg_detector
+
+# Add clouddetector to the path
+sys.path.append(
+    os.path.abspath(os.path.join(os.getcwd(), "..", "cloud_detection"))
+)
+
+
+from cloud_detection import is_cloudy
+
 import time
 from shutil import copy2
 from s2cloudless import S2PixelCloudDetector

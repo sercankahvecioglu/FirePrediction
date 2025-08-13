@@ -2,7 +2,7 @@
 import base64
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from auth import create_gmail_service
+from .auth import create_gmail_service
 from datetime import datetime
 
 def send_mail(subject="Flame Sentinels Alert", recipient="sercankahvecioglu123@gmail.com", 
