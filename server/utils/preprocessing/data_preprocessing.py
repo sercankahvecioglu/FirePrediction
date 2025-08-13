@@ -73,7 +73,7 @@ class BaseProcessor():
         veg_tiles, no_veg_tiles = ndvi_veg_detector(self.tiles_input_path)
         #----------------------------------------------------------------
         dt = time.time() - init_time
-        print(f"✓ Vegetation detection completed in {dt:.1f} seconds. Clean tiles: {veg_tiles}, Low vegetation tiles moved: {no_veg_tiles}")
+        print(f"✓ Vegetation detection completed in {dt:.1f} seconds. Number of clean tiles: {len(veg_tiles)}, Number of low vegetation tiles moved: {len(no_veg_tiles)}")
         return veg_tiles, no_veg_tiles
     
     def _extract_indices(self):
@@ -136,6 +136,7 @@ class TrainDataProcessor(BaseProcessor):
         print(f"✓ label tiles extracted to {self.tiles_labels_path} in {dt:.1f} seconds")
     
     def run(self):
+        pipeline_start = time.time()
         print(f"=== Starting processing pipeline for dataset: {self.dataset_name} ===")
         
         self._setup_directories()
@@ -147,7 +148,9 @@ class TrainDataProcessor(BaseProcessor):
         vegetation_results = self._apply_vegetation_detection()
         self._extract_indices()
         
+        pipeline_duration = time.time() - pipeline_start
         print(f"\n=== Processing pipeline completed for dataset: {self.dataset_name} ===")
+        print(f"⏱️  Total pipeline execution time: {pipeline_duration:.1f} seconds")
         print("📁 OUTPUT FOLDER LOCATIONS:")
         print(f"  🔸 Clean bands tiles +  indices (15 bands): {self.tiles_input_path}")
         print(f"  🔸 Label tiles (dNBR): {self.tiles_labels_path}")
@@ -183,6 +186,7 @@ class SatelliteProcessor(BaseProcessor):
         super().__init__(dataset_name, base_path, patch_size, cloud_threshold)
     
     def run(self):
+        pipeline_start = time.time()
         print(f"=== Starting processing pipeline for dataset: {self.dataset_name} ===")
         
         self._setup_directories()
@@ -192,7 +196,9 @@ class SatelliteProcessor(BaseProcessor):
         vegetation_results = self._apply_vegetation_detection()
         self._extract_indices()
         
+        pipeline_duration = time.time() - pipeline_start
         print(f"\n=== Processing pipeline completed for dataset: {self.dataset_name} ===")
+        print(f"⏱️  Total pipeline execution time: {pipeline_duration:.1f} seconds")
         print("📁 OUTPUT FOLDER LOCATIONS:")
         print(f"  🔸 Clean bands tiles +  indices (15 bands): {self.tiles_input_path}")
 
@@ -206,5 +212,5 @@ class SatelliteProcessor(BaseProcessor):
 
 # brief running check to see if the code works correctly
 if __name__ == '__main__':
-    train_proc = TrainDataProcessor('chile')
+    train_proc = TrainDataProcessor('usa2')
     train_proc.run()
