@@ -3,9 +3,9 @@ import os
 import glob
 from s2cloudless import S2PixelCloudDetector
 
-cloud_detector = S2PixelCloudDetector(threshold=0.4, average_over=4, dilation_size=2, all_bands=True)
+cloud_detector = S2PixelCloudDetector(threshold=0.5, average_over=4, dilation_size=2, all_bands=True)
 
-def is_cloudy(tile_path:str, cloud_detector = cloud_detector, cloud_threshold:float = 0.5, job_id:str = None, delete = False):
+def is_cloudy(tile_path:str, cloud_detector = cloud_detector, cloud_threshold:float = 0.4, job_id:str = None, delete = False):
     """
     Function to find cloudy tiles from s2cloudless's S2PixelCloudDetector and discard them from the tiles folder
 
@@ -29,10 +29,6 @@ def is_cloudy(tile_path:str, cloud_detector = cloud_detector, cloud_threshold:fl
     if tile.ndim != 3:
         print(f"Warning: Tile {tile_path} has unexpected shape {tile.shape}")
         return cloud_results
-
-    # Ensure data is in correct range (0-1 or 0-10000 depending on preprocessing)
-    if tile.max() > 1.0:
-        tile = tile / 10000.0  # Convert from reflectance values to 0-1 range
         
     # Ensure data type is float
     tile = tile.astype(np.float32)
@@ -45,11 +41,14 @@ def is_cloudy(tile_path:str, cloud_detector = cloud_detector, cloud_threshold:fl
     perc_cloudy = cloudy_pixels / total_pixels
 
     # if the cloudy pixels % exceeds the threshold, discard the image
-    if perc_cloudy >= cloud_threshold and delete:
+    if perc_cloudy >= cloud_threshold:
         # remove image file from tiles folder
-        os.remove(tile_path) 
         cloud_results['cloudy_tiles'] += 1
-        print(f"Cloudy tile ({os.path.basename(tile_path)}) found ({perc_cloudy*100:.1f}% of pixels are cloudy). Removing it...")
+        print(f"Cloudy tile ({os.path.basename(tile_path)}) found ({perc_cloudy*100:.1f}% of pixels are cloudy).")
+
+        if delete:
+            os.remove(tile_path)
+            print("Removing image")
     else: 
         cloud_results['clean_tiles'] += 1
         print(f"Tile {os.path.basename(tile_path)} is not cloudy (only {perc_cloudy*100:.1f}% of pixels are cloudy).")

@@ -4,6 +4,7 @@ from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel
 import uvicorn
 import uuid
@@ -35,6 +36,7 @@ from utils import fire_prediction
 from utils import preprocessing
 from utils import forest_detection
 from utils import data_api 
+from utils import plotting
 
 # Initialize FastAPI app with metadata
 app = FastAPI(
@@ -199,7 +201,9 @@ async def submit_image_cloud_detection(
     )
     
     # Start background processing
-    background_tasks.add_task(process_cloud_detection, job_id, image, tile_size)
+    background_tasks.add_task(run_in_threadpool, process_cloud_detection, job_id, image, tile_size)
+
+    # background_tasks.add_task(process_cloud_detection, job_id, image, tile_size)
     
     return JobResponse(
         job_id=job_id,
@@ -210,7 +214,7 @@ async def submit_image_cloud_detection(
 @app.post("/submit-image/forest-detection", response_model=JobResponse, tags=["Submit Image"])
 async def submit_image_forest_detection(
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(...)
+    cloud_job_id: str
 ):
     """
     Submit a satellite image for forest detection analysis.
@@ -239,15 +243,7 @@ async def submit_image_forest_detection(
         JobResponse: Job information including job_id for tracking progress
     """
     job_id = str(uuid.uuid4())
-    
-    # Validate file format
-    file_extension = os.path.splitext(file.filename)[1].lower()
-    if file_extension not in allowed_formats:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Unsupported file format. Allowed: {allowed_formats}"
-        )
-    
+
     # Create processing job
     processing_jobs[job_id] = JobStatus(
         job_id=job_id,
@@ -255,24 +251,26 @@ async def submit_image_forest_detection(
         status="pending",
         created_at=datetime.now(),
         completed_at=None,
+        tiles_to_process=processing_jobs[cloud_job_id].tiles_to_process,
+        tiles_processed=0,
+        successful_tiles=0,
         progress=0,
         message="Image uploaded successfully. Processing will start shortly."
     )
     
     # Start background processing
-    background_tasks.add_task(process_forest_detection, job_id, file)
+    background_tasks.add_task(run_in_threadpool, process_forest_detection, job_id, cloud_job_id)
     
     return JobResponse(
         job_id=job_id,
         status="pending",
         message="Forest detection job created successfully",
-        estimated_time=180  # 3 minutes
     )
 
 @app.post("/submit-image/fire-prediction", response_model=JobResponse, tags=["Submit Image"])
 async def submit_image_fire_prediction(
     background_tasks: BackgroundTasks,
-    file: UploadFile = File(...)
+    cloud_job_id: str
 ):
     """
     Submit a satellite image for fire risk prediction analysis.
@@ -304,14 +302,6 @@ async def submit_image_fire_prediction(
     """
     job_id = str(uuid.uuid4())
     
-    # Validate file format
-    file_extension = os.path.splitext(file.filename)[1].lower()
-    if file_extension not in allowed_formats:
-        raise HTTPException(
-            status_code=400, 
-            detail=f"Unsupported file format. Allowed: {allowed_formats}"
-        )
-    
     # Create processing job
     processing_jobs[job_id] = JobStatus(
         job_id=job_id,
@@ -319,18 +309,20 @@ async def submit_image_fire_prediction(
         status="pending",
         created_at=datetime.now(),
         completed_at=None,
+        tiles_to_process=processing_jobs[cloud_job_id].tiles_to_process,
+        tiles_processed=0,
+        successful_tiles=0,
         progress=0,
         message="Image uploaded successfully. Processing will start shortly."
     )
     
     # Start background processing
-    background_tasks.add_task(process_fire_prediction, job_id, file)
+    background_tasks.add_task(process_fire_prediction, job_id, cloud_job_id)
     
     return JobResponse(
         job_id=job_id,
         status="pending",
-        message="Fire prediction job created successfully",
-        estimated_time=300  # 5 minutes
+        message="Fire prediction job created successfully"
     )
 
 # ============================================================================
@@ -586,6 +578,15 @@ def cleanup_files():
         shutil.rmtree(FIRE_IMAGES_PATH)
         shutil.rmtree(METADATA_FOLDER)
         shutil.rmtree(DISPLAY_FOLDER)
+
+        # Create folders if necessary
+        os.makedirs(RAW_IMAGES_PATH, exist_ok=True)
+        os.makedirs(CLOUD_IMAGES_PATH, exist_ok=True)
+        os.makedirs(TILES_IMAGES_PATH, exist_ok=True)
+        os.makedirs(FOREST_IMAGES_PATH, exist_ok=True)
+        os.makedirs(FIRE_IMAGES_PATH, exist_ok=True)
+        os.makedirs(METADATA_FOLDER, exist_ok=True)
+        os.makedirs(DISPLAY_FOLDER, exist_ok=True)
         
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Error cleaning up files: {e}")
@@ -1082,41 +1083,6 @@ async def mock_process_image(job_id: str, task: str):
 # IMAGE VISUALIZATION FUNCTIONS
 # ============================================================================
 
-def create_rgb_visualization(image: np.ndarray, job_id: str, output_path: str):
-    """
-    Create RGB visualization from satellite image.
-    Assumes bands are in order: R, G, B (first 3 bands)
-    """
-    try:
-        if image.shape[2] < 3:
-            raise ValueError("Image must have at least 3 bands for RGB visualization")
-        
-        # Extract RGB bands (typically bands 0, 1, 2)
-        rgb = image[:, :, :3]
-        
-        # Normalize to 0-1 range
-        rgb_normalized = np.zeros_like(rgb, dtype=np.float32)
-        for i in range(3):
-            band = rgb[:, :, i]
-            band_min, band_max = np.percentile(band, [2, 98])  # Use 2-98 percentile for contrast
-            rgb_normalized[:, :, i] = np.clip((band - band_min) / (band_max - band_min), 0, 1)
-        
-        # Create and save the plot
-        plt.figure(figsize=(10, 10))
-        plt.imshow(rgb_normalized)
-        plt.axis('off')
-        plt.title(f'RGB Visualization - {job_id}', fontsize=14, pad=20)
-        plt.tight_layout()
-        plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
-        plt.close()
-        
-        print(f"RGB visualization saved to: {output_path}")
-        
-    except Exception as e:
-        print(f"Error creating RGB visualization: {e}")
-        # Create a placeholder image if RGB fails
-        create_placeholder_image(output_path, "RGB Visualization\nNot Available")
-
 def create_cloud_mask_visualization(metadata: pd.DataFrame, image_shape: tuple, job_id: str, output_path: str):
     """
     Create cloud mask visualization from tile metadata.
@@ -1171,7 +1137,7 @@ def create_placeholder_image(output_path: str, text: str):
 # BACKGROUND PROCESSING FUNCTIONS
 # ============================================================================
 
-async def process_cloud_detection(job_id: str, image: np.ndarray, tiles_size: int):
+def process_cloud_detection(job_id: str, image: np.ndarray, tiles_size: int):
     """
     Background task for cloud detection processing.
     
@@ -1215,7 +1181,8 @@ async def process_cloud_detection(job_id: str, image: np.ndarray, tiles_size: in
         metadata = preprocessing.extract_tiles_with_padding(FILE_PATH, job_id, (tiles_size, tiles_size, image.shape[2]), TILES_IMAGES_PATH)
 
         # Save metadata for debugging purposes
-        metadata.to_excel(os.path.join(METADATA_FOLDER, f"{job_id}_metadata.xlsx"), index=False)
+        metadata_path = os.path.join(METADATA_FOLDER, f"{job_id}_metadata.xlsx")
+        metadata.to_excel(metadata_path, index=False)
 
         print("Images loaded and tiled")
 
@@ -1225,6 +1192,11 @@ async def process_cloud_detection(job_id: str, image: np.ndarray, tiles_size: in
             tile_path = os.path.join(TILES_IMAGES_PATH, f"{job_id}_tile_{metadata['tile_coordinates'][i]}.npy")
             
             result, cloud_mask, perc_cloudy = cloud_detection.is_cloudy(tile_path, job_id=job_id, cloud_threshold=0.5)
+
+            # Save cloud_masks
+
+            cloud_mask_path = os.path.join(CLOUD_IMAGES_PATH, f"{job_id}_{metadata['tile_coordinates'][i]}_cloud_mask.npy")
+            np.save(cloud_mask_path, cloud_mask)
 
             cloudy = result['cloudy_tiles'] > 0
 
@@ -1237,22 +1209,14 @@ async def process_cloud_detection(job_id: str, image: np.ndarray, tiles_size: in
 
         # Generate visualization images after all tiles are processed
         processing_jobs[job_id].message = "Generating visualization images..."
+
+        metadata.to_excel(metadata_path, index=False)
         
         # Create RGB visualization
-        rgb_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_rgb.png")
-        create_rgb_visualization(image, job_id, rgb_output_path)
-        
+        plotting.create_rgb_visualization(image, DISPLAY_FOLDER, job_id=job_id)
+
         # Create cloud mask visualization
-        cloud_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_cloud.png")
-        create_cloud_mask_visualization(metadata, image.shape, job_id, cloud_output_path)
-        
-        # Create placeholder images for forest and fire (not implemented yet)
-        # TODO: Replace these with real forest and fire processing when algorithms are integrated
-        forest_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_forest.png")
-        create_placeholder_image(forest_output_path, "Forest Detection\nNot Available\n\nTODO: Integrate\nutils.forest_detection\nmodules")
-        
-        fire_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_heatmap.png")
-        create_placeholder_image(fire_output_path, "Fire Prediction\nNot Available\n\nTODO: Integrate\nutils.fire_prediction\nmodules")
+        plotting.create_cloud_mask_visualization(DATA_PATH, metadata_path, job_id=job_id)
         
         # Convert metadata to list of dictionaries for JSON serialization
         metadata_list = []
@@ -1270,10 +1234,10 @@ async def process_cloud_detection(job_id: str, image: np.ndarray, tiles_size: in
         processed_images[job_id] = ProcessedImageResponse(
             job_id=job_id,
             task="cloud_detection",
-            rgb_image_url=f"/static/images/{job_id}_rgb.png",
-            cloud_image_url=f"/static/images/{job_id}_cloud.png", 
-            forest_image_url=f"/static/images/{job_id}_forest.png", # PLACEHOLDER - TODO: Implement real forest detection
-            heatmap_image_url=f"/static/images/{job_id}_heatmap.png", # PLACEHOLDER - TODO: Implement real fire prediction
+            rgb_image_url=f"{job_id}_rgb.png",
+            cloud_image_url=f"{job_id}_cloud.png", 
+            forest_image_url="", 
+            heatmap_image_url="", 
             metadata=metadata_list,
             processing_time=processing_time
         )
@@ -1288,7 +1252,7 @@ async def process_cloud_detection(job_id: str, image: np.ndarray, tiles_size: in
         processing_jobs[job_id].message = f"Processing failed: {str(e)}"
         print(f"Error details: {str(e)}")
 
-async def process_forest_detection(job_id: str, image: np.ndarray):
+def process_forest_detection(job_id: str, cloud_job_id):
     """
     Background task for forest detection processing.
     
@@ -1316,63 +1280,23 @@ async def process_forest_detection(job_id: str, image: np.ndarray):
         file (UploadFile): Input satellite image
     """
     try:
-        # Update job status
-        processing_jobs[job_id].status = "processing"
-        processing_jobs[job_id].progress = 10
-        processing_jobs[job_id].message = "Loading image data..."
+
+        metadata_path = os.path.join(METADATA_FOLDER, f"{cloud_job_id}_metadata.xlsx")
+
+        metadata = pd.read_excel(metadata_path)
+
         
-        # TODO: Implement actual forest detection processing
-        # This is a skeleton function - implement the actual algorithms
-        
-        # Simulate processing steps
-        await asyncio.sleep(2)
-        processing_jobs[job_id].progress = 25
-        processing_jobs[job_id].message = "Calculating vegetation indices..."
-        
-        await asyncio.sleep(3)
-        processing_jobs[job_id].progress = 50
-        processing_jobs[job_id].message = "Applying forest classification..."
-        
-        await asyncio.sleep(3)
-        processing_jobs[job_id].progress = 75
-        processing_jobs[job_id].message = "Identifying forest boundaries..."
-        
-        await asyncio.sleep(2)
-        processing_jobs[job_id].progress = 100
-        processing_jobs[job_id].status = "completed"
-        processing_jobs[job_id].completed_at = datetime.now()
-        processing_jobs[job_id].message = "Forest detection completed successfully"
-        
-        # Store processed image metadata
+
         processing_time = (datetime.now() - processing_jobs[job_id].created_at).total_seconds()
-        
-        # Generate visualization images
-        rgb_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_rgb.png")
-        cloud_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_cloud.png")
-        forest_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_forest.png")
-        fire_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_heatmap.png")
-        
-        # Create placeholder images for RGB and cloud (not applicable for forest-only detection)
-        create_placeholder_image(rgb_output_path, "RGB Visualization\nNot Available\nfor Forest Detection")
-        create_placeholder_image(cloud_output_path, "Cloud Detection\nNot Available\nfor Forest Detection")
-        
-        # Create mock forest detection visualization
-        generate_mock_forest_map(job_id, forest_output_path)
-        
-        # Create placeholder fire image
-        create_placeholder_image(fire_output_path, "Fire Prediction\nNot Available\nfor Forest Detection")
-        
-        # Generate realistic forest metadata
-        forest_metadata = generate_mock_metadata(job_id, "forest_detection")
         
         processed_images[job_id] = ProcessedImageResponse(
             job_id=job_id,
             task="forest_detection",
-            rgb_image_url=f"/static/images/{job_id}_rgb.png",
-            cloud_image_url=f"/static/images/{job_id}_cloud.png",
+            rgb_image_url=f"/static/images/{cloud_job_id}_rgb.png",
+            cloud_image_url=f"/static/images/{cloud_job_id}_cloud.png",
             forest_image_url=f"/static/images/{job_id}_forest.png",
             heatmap_image_url=f"/static/images/{job_id}_heatmap.png",
-            metadata=forest_metadata,
+            metadata=metadata,
             processing_time=processing_time
         )
         
@@ -1380,7 +1304,7 @@ async def process_forest_detection(job_id: str, image: np.ndarray):
         processing_jobs[job_id].status = "failed"
         processing_jobs[job_id].message = f"Processing failed: {str(e)}"
 
-async def process_fire_prediction(job_id: str, file: UploadFile):
+def process_fire_prediction(job_id: str, file: UploadFile):
     """
     Background task for fire risk prediction processing.
     
@@ -1426,23 +1350,23 @@ async def process_fire_prediction(job_id: str, file: UploadFile):
         # - utils/preprocessing/ for data preparation
         
         # Simulate processing steps
-        await asyncio.sleep(3)
+        asyncio.sleep(3)
         processing_jobs[job_id].progress = 20
         processing_jobs[job_id].message = "Extracting environmental features..."
-        
-        await asyncio.sleep(4)
+
+        asyncio.sleep(4)
         processing_jobs[job_id].progress = 40
         processing_jobs[job_id].message = "Running fire risk prediction model..."
-        
-        await asyncio.sleep(4)
+
+        asyncio.sleep(4)
         processing_jobs[job_id].progress = 65
         processing_jobs[job_id].message = "Generating risk probability maps..."
-        
-        await asyncio.sleep(2)
+
+        asyncio.sleep(2)
         processing_jobs[job_id].progress = 85
         processing_jobs[job_id].message = "Identifying high-risk zones..."
-        
-        await asyncio.sleep(2)
+
+        asyncio.sleep(2)
         processing_jobs[job_id].progress = 100
         processing_jobs[job_id].status = "completed"
         processing_jobs[job_id].completed_at = datetime.now()
@@ -1524,4 +1448,5 @@ async def process_fire_prediction(job_id: str, file: UploadFile):
 
 
 if __name__ == "__main__":
+    # uvicorn.run("app:app", host="0.0.0.0", port=5001, workers=4)
     uvicorn.run("app:app", host="0.0.0.0", port=5001, reload=True)
