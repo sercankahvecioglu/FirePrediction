@@ -933,14 +933,37 @@ def process_fire_prediction(job_id: str, cloud_job_id: str):
 
             tile = np.load(tile_path)
 
-            # Do whatever is needed
+            # Calculate BANDS
+            print("Calculating NDVI and NDMI...")
+
+            nir = tile[..., 7].astype(np.float32)
+            red = tile[..., 3].astype(np.float32)
+
+            ndvi = np.divide(nir - red, nir + red,
+                            out=np.zeros_like(nir), where=(nir + red) != 0)
+
+            tile = np.concatenate((tile, ndvi[..., np.newaxis]), axis=-1)
+
+            # Add NDMI index
+
+            swir = tile[..., 11].astype(np.float32)
+            nir = tile[..., 7].astype(np.float32)
+
+            ndmi = np.divide(nir - swir, nir + swir,
+                                out=np.zeros_like(nir), where=(nir + swir) != 0)
+
+            tile = np.concatenate((tile, ndmi[..., np.newaxis]), axis=-1)
 
             # Process Fire Detection
 
+            fire_mask, fire_prob = fire_prediction.predict_fire(tile)
+
+            np.save(os.path.join(FIRE_IMAGES_PATH, f"{job_id}_tile_{metadata['tile_coordinates'][i]}_fire_mask.npy"), fire_mask)
+            np.save(os.path.join(FIRE_IMAGES_PATH, f"{job_id}_tile_{metadata['tile_coordinates'][i]}_fire_prob.npy"), fire_prob)
+
             # Add result to metadata
 
-        plotting.create_heatmap(output_folder=DATA_PATH, metadata_path=metadata_path, job_id=job_id)
-
+        plotting.create_heatmap(DATA_PATH, metadata_path=metadata_path, job_id=job_id)
 
         processing_time = (datetime.now() - processing_jobs[job_id].created_at).total_seconds()
         

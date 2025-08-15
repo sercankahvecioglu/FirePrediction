@@ -8,7 +8,7 @@ import torch.nn as nn
 
 class UNet(nn.Module):
 
-    def __init__(self, in_channels=5, out_channels=3, init_features=32):
+    def __init__(self, in_channels=5, out_channels=1, init_features=32):
         super(UNet, self).__init__()
 
         features = init_features
@@ -43,6 +43,7 @@ class UNet(nn.Module):
         self.conv = nn.Conv2d(
             in_channels=features, out_channels=out_channels, kernel_size=1
         )
+        self.sigmoid = nn.Sigmoid()
 
     def forward(self, x):
         enc1 = self.encoder1(x)
@@ -66,8 +67,9 @@ class UNet(nn.Module):
         dec1 = self.decoder1(dec1)
         
         logits = self.conv(dec1)
+        output = self.sigmoid(logits)
         
-        return logits
+        return output
 
     @staticmethod
     def _block(in_channels, features, name):
