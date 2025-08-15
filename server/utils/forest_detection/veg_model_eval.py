@@ -30,7 +30,7 @@ class SimpleCNN(nn.Module):
     
 
 
-def ndvi_veg_detector(input_folder, ndvi_threshold=0.3, min_veg_percentage=15.0):
+def _ndvi_veg_detector(input_folder, ndvi_threshold=0.3, min_veg_percentage=15.0):
     """
     Filter .npy files using NDVI threshold for vegetation detection
     
@@ -85,6 +85,51 @@ def ndvi_veg_detector(input_folder, ndvi_threshold=0.3, min_veg_percentage=15.0)
             removed_files.append(npy_file)
     
     return kept_files, removed_files
+
+def ndvi_veg_detector(image_data, job_id, file_name=None, ndvi_threshold=0.3, min_veg_percentage=15.0):
+    """
+    Filter .npy files using NDVI threshold for vegetation detection
+    
+    Args:
+        input_folder (str): Path to folder containing .npy files
+        ndvi_threshold (float): NDVI threshold (typically 0.2-0.3)
+        min_veg_percentage (float): Minimum percentage of vegetation pixels required (0-100)
+    """
+    try:
+
+        print(f"Processing NDVI of {file_name}")
+
+        nir = image_data[..., 7].astype(np.float32)
+        red = image_data[..., 3].astype(np.float32)
+
+        ndvi = np.divide(nir - red, nir + red,
+                        out=np.zeros_like(nir), where=(nir + red) != 0)
+
+        print("NDVI calculated")
+
+        total_pixels = ndvi.size
+        
+        veg_pixels = np.sum(ndvi > ndvi_threshold)
+        veg_percentage = (veg_pixels / total_pixels) * 100
+
+        print(f"Vegetation percentage: {veg_percentage:.2f}% of tile {file_name}")
+
+        is_forest = False
+            
+        # Keep if enough vegetation percentage
+        if veg_percentage >= min_veg_percentage:
+            is_forest = True
+            return True, is_forest, veg_percentage
+        else:
+            print(f"  No enought vegetation {file_name} ({veg_percentage:.2f}% < {min_veg_percentage}%)")
+            return True, is_forest, veg_percentage
+
+                
+    except Exception as e:
+        print(f"Error processing {file_name}: {e}")
+        return False, False, 0.0
+
+
 
 
 

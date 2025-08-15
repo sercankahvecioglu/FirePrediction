@@ -88,6 +88,8 @@ class ProcessedImageResponse(BaseModel):
 # In-memory storage for demo purposes (use database in production)
 processing_jobs = {}
 processed_images = {}
+forest_detection_job_id = {}
+fire_prediction_job_id = {}
 
 # ------ CONSTANTS ----- #
 
@@ -594,492 +596,6 @@ def cleanup_files():
     return {"message": "Temporary files cleaned up successfully"}
 
 # ============================================================================
-# MOCK DATA GENERATION FUNCTIONS
-# ============================================================================
-
-def generate_mock_rgb_image(job_id: str, output_path: str):
-    """
-    Generate a mock RGB satellite image for testing purposes.
-    
-    TODO: Replace with real satellite image loading when integrating with actual data.
-    Integration steps:
-    1. Replace this function with actual satellite image loading from file
-    2. Use real bands (Red, Green, Blue) from satellite data
-    3. Apply proper normalization based on satellite sensor specifications
-    4. Consider atmospheric correction and geometric correction
-    """
-    try:
-        # Create a synthetic satellite-like image
-        fig, ax = plt.subplots(figsize=(10, 10))
-        
-        # Generate mock RGB data resembling satellite imagery
-        height, width = 512, 512
-        
-        # Create base terrain with noise
-        np.random.seed(hash(job_id) % 2**32)  # Consistent mock data per job_id
-        terrain = np.random.rand(height, width)
-        
-        # Add geographical features
-        r_channel = terrain * 0.6 + np.random.rand(height, width) * 0.4  # More earth tones
-        g_channel = terrain * 0.8 + np.random.rand(height, width) * 0.2  # More vegetation
-        b_channel = terrain * 0.4 + np.random.rand(height, width) * 0.6  # Water bodies
-        
-        # Stack channels
-        rgb_image = np.dstack([r_channel, g_channel, b_channel])
-        
-        # Normalize to [0, 1]
-        rgb_image = np.clip(rgb_image, 0, 1)
-        
-        ax.imshow(rgb_image)
-        ax.set_title(f'Mock RGB Satellite Image - {job_id}', fontsize=14, pad=20)
-        ax.axis('off')
-        
-        plt.tight_layout()
-        plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
-        plt.close()
-        
-        print(f"Mock RGB image generated: {output_path}")
-        
-    except Exception as e:
-        print(f"Error generating mock RGB image: {e}")
-        create_placeholder_image(output_path, "Mock RGB Image\nGeneration Failed")
-
-def generate_mock_cloud_mask(job_id: str, output_path: str):
-    """
-    Generate a mock cloud detection mask for testing purposes.
-    
-    TODO: Replace with real cloud detection algorithm when integrating with actual data.
-    Integration steps:
-    1. Replace with utils.cloud_detection.is_cloudy() function
-    2. Use real spectral bands for cloud detection (typically NIR, SWIR)
-    3. Implement threshold-based or ML-based cloud detection
-    4. Consider cloud shadow detection
-    5. Validate against ground truth data
-    """
-    try:
-        fig, ax = plt.subplots(figsize=(10, 10))
-        
-        # Generate mock cloud mask data
-        height, width = 512, 512
-        np.random.seed(hash(job_id) % 2**32)
-        
-        # Create cloud patches
-        cloud_mask = np.zeros((height, width))
-        
-        # Add some cloud regions
-        for _ in range(random.randint(3, 8)):
-            center_x = random.randint(50, width-50)
-            center_y = random.randint(50, height-50)
-            radius = random.randint(30, 80)
-            
-            y, x = np.ogrid[:height, :width]
-            mask = (x - center_x)**2 + (y - center_y)**2 <= radius**2
-            cloud_mask[mask] = random.uniform(0.3, 1.0)
-        
-        # Add some noise for realism
-        noise = np.random.rand(height, width) * 0.1
-        cloud_mask = np.clip(cloud_mask + noise, 0, 1)
-        
-        im = ax.imshow(cloud_mask, cmap='Blues', alpha=0.8)
-        ax.set_title(f'Mock Cloud Detection Mask - {job_id}', fontsize=14, pad=20)
-        ax.axis('off')
-        
-        # Add colorbar
-        plt.colorbar(im, ax=ax, label='Cloud Coverage Probability', shrink=0.8)
-        
-        plt.tight_layout()
-        plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
-        plt.close()
-        
-        print(f"Mock cloud mask generated: {output_path}")
-        
-    except Exception as e:
-        print(f"Error generating mock cloud mask: {e}")
-        create_placeholder_image(output_path, "Mock Cloud Mask\nGeneration Failed")
-
-def generate_mock_forest_map(job_id: str, output_path: str):
-    """
-    Generate a mock forest detection map for testing purposes.
-    
-    TODO: Replace with real forest detection algorithm when integrating with actual data.
-    Integration steps:
-    1. Replace with utils.forest_detection forest classification algorithms
-    2. Use vegetation indices (NDVI, EVI, SAVI) calculated from NIR and Red bands
-    3. Implement supervised classification (Random Forest, SVM) or deep learning
-    4. Include forest type classification (deciduous, coniferous, mixed)
-    5. Validate against forestry databases and ground truth
-    """
-    try:
-        fig, ax = plt.subplots(figsize=(10, 10))
-        
-        height, width = 512, 512
-        np.random.seed(hash(job_id) % 2**32)
-        
-        # Create forest regions with different types
-        forest_map = np.zeros((height, width))
-        
-        # Forest type regions: 0=No forest, 1=Deciduous, 2=Coniferous, 3=Mixed
-        for forest_type in range(1, 4):
-            for _ in range(random.randint(2, 5)):
-                center_x = random.randint(80, width-80)
-                center_y = random.randint(80, height-80)
-                radius_x = random.randint(40, 100)
-                radius_y = random.randint(40, 100)
-                
-                y, x = np.ogrid[:height, :width]
-                mask = ((x - center_x)/radius_x)**2 + ((y - center_y)/radius_y)**2 <= 1
-                forest_map[mask] = forest_type
-        
-        # Create custom colormap
-        colors = ['white', 'lightgreen', 'darkgreen', 'forestgreen']
-        try:
-            from matplotlib.colors import ListedColormap
-            cmap = ListedColormap(colors[:4])
-        except ImportError:
-            # Fallback to default colormap if ListedColormap is not available
-            cmap = 'Greens'
-        
-        im = ax.imshow(forest_map, cmap=cmap, vmin=0, vmax=3)
-        ax.set_title(f'Mock Forest Classification Map - {job_id}', fontsize=14, pad=20)
-        ax.axis('off')
-        
-        # Add colorbar with labels
-        cbar = plt.colorbar(im, ax=ax, shrink=0.8, ticks=[0, 1, 2, 3])
-        cbar.set_ticklabels(['No Forest', 'Deciduous', 'Coniferous', 'Mixed'])
-        
-        plt.tight_layout()
-        plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
-        plt.close()
-        
-        print(f"Mock forest map generated: {output_path}")
-        
-    except Exception as e:
-        print(f"Error generating mock forest map: {e}")
-        create_placeholder_image(output_path, "Mock Forest Map\nGeneration Failed")
-
-def generate_mock_fire_heatmap(job_id: str, output_path: str):
-    """
-    Generate a mock fire risk prediction heatmap for testing purposes.
-    
-    TODO: Replace with real fire prediction algorithm when integrating with actual data.
-    Integration steps:
-    1. Replace with utils.fire_prediction.unet.py U-Net model predictions
-    2. Use environmental features: vegetation moisture, temperature, wind, terrain
-    3. Integrate weather data from utils.data_api (temperature_api.py, wind_api.py)
-    4. Use trained models from utils.fire_prediction.train_test.py
-    5. Apply post-processing from utils.fire_prediction.pred_labels_postprocessing.py
-    6. Validate predictions against historical fire data
-    """
-    try:
-        fig, ax = plt.subplots(figsize=(10, 10))
-        
-        height, width = 512, 512
-        np.random.seed(hash(job_id) % 2**32)
-        
-        # Generate fire risk heatmap
-        # Use gradient to simulate realistic risk distribution
-        x = np.linspace(0, 1, width)
-        y = np.linspace(0, 1, height)
-        X, Y = np.meshgrid(x, y)
-        
-        # Base risk pattern
-        base_risk = 0.3 * np.sin(3 * np.pi * X) * np.cos(2 * np.pi * Y) + 0.5
-        
-        # Add hot spots (high risk areas)
-        for _ in range(random.randint(3, 6)):
-            center_x = random.randint(50, width-50)
-            center_y = random.randint(50, height-50)
-            intensity = random.uniform(0.7, 1.0)
-            
-            y_grid, x_grid = np.ogrid[:height, :width]
-            distance = np.sqrt((x_grid - center_x)**2 + (y_grid - center_y)**2)
-            hotspot = intensity * np.exp(-(distance**2) / (2 * 30**2))
-            base_risk += hotspot
-        
-        # Add noise for realism
-        noise = np.random.rand(height, width) * 0.15
-        fire_risk = np.clip(base_risk + noise, 0, 1)
-        
-        im = ax.imshow(fire_risk, cmap='YlOrRd', alpha=0.9)
-        ax.set_title(f'Mock Fire Risk Prediction Heatmap - {job_id}', fontsize=14, pad=20)
-        ax.axis('off')
-        
-        # Add colorbar
-        cbar = plt.colorbar(im, ax=ax, label='Fire Risk Probability', shrink=0.8)
-        cbar.set_ticks([0, 0.25, 0.5, 0.75, 1.0])
-        cbar.set_ticklabels(['Low', 'Low-Med', 'Medium', 'High', 'Critical'])
-        
-        plt.tight_layout()
-        plt.savefig(output_path, dpi=150, bbox_inches='tight', facecolor='white')
-        plt.close()
-        
-        print(f"Mock fire heatmap generated: {output_path}")
-        
-    except Exception as e:
-        print(f"Error generating mock fire heatmap: {e}")
-        create_placeholder_image(output_path, "Mock Fire Heatmap\nGeneration Failed")
-
-def generate_mock_metadata(job_id: str, task: str) -> List[dict]:
-    """
-    Generate mock metadata for testing purposes.
-    
-    TODO: Replace with real metadata extraction when integrating with actual data.
-    Integration steps:
-    1. Extract real metadata from satellite image headers (TIFF tags, NPY attributes)
-    2. Use geodata extraction from utils.preprocessing.geodata_extraction.py
-    3. Include temporal data, geographic coordinates, sensor information
-    4. Add weather data integration from utils.data_api modules
-    5. Store metadata in structured format for analysis
-    """
-    np.random.seed(hash(job_id) % 2**32)
-    
-    if task == "cloud_detection":
-        return [
-            {
-                "tile_id": f"tile_{i}",
-                "coordinates": [random.uniform(-120, -110), random.uniform(35, 45)],
-                "cloud_coverage_percent": round(random.uniform(0, 100), 2),
-                "confidence_score": round(random.uniform(0.7, 0.98), 3),
-                "clear_pixels": random.randint(50000, 65536),
-                "cloudy_pixels": random.randint(0, 15536)
-            }
-            for i in range(random.randint(16, 36))  # Simulate 16-36 tiles
-        ]
-    
-    elif task == "forest_detection":
-        return [
-            {
-                "forest_coverage_percent": round(random.uniform(45, 85), 2),
-                "forest_types": {
-                    "deciduous": round(random.uniform(20, 40), 1),
-                    "coniferous": round(random.uniform(35, 55), 1),
-                    "mixed": round(random.uniform(15, 35), 1)
-                },
-                "ndvi_statistics": {
-                    "mean": round(random.uniform(0.6, 0.8), 3),
-                    "std": round(random.uniform(0.1, 0.3), 3),
-                    "min": round(random.uniform(0.0, 0.3), 3),
-                    "max": round(random.uniform(0.85, 1.0), 3)
-                },
-                "vegetation_health": random.choice(["Excellent", "Good", "Fair", "Poor"]),
-                "deforestation_risk": random.choice(["Low", "Medium", "High"])
-            }
-        ]
-    
-    elif task == "fire_prediction":
-        high_risk_areas = round(random.uniform(5, 30), 1)
-        return [
-            {
-                "risk_distribution": {
-                    "low_risk_percent": round(random.uniform(40, 60), 1),
-                    "medium_risk_percent": round(random.uniform(25, 35), 1),
-                    "high_risk_percent": high_risk_areas,
-                    "critical_risk_percent": round(random.uniform(2, 8), 1)
-                },
-                "environmental_factors": {
-                    "avg_temperature_celsius": round(random.uniform(25, 35), 1),
-                    "humidity_percent": round(random.uniform(30, 70), 1),
-                    "wind_speed_kmh": round(random.uniform(5, 25), 1),
-                    "vegetation_moisture": round(random.uniform(0.2, 0.8), 2)
-                },
-                "prediction_confidence": round(random.uniform(0.8, 0.95), 3),
-                "alert_level": "HIGH" if high_risk_areas > 20 else "MEDIUM" if high_risk_areas > 10 else "LOW",
-                "recommended_actions": [
-                    "Monitor high-risk zones closely",
-                    "Prepare firefighting resources",
-                    "Issue fire weather warnings"
-                ] if high_risk_areas > 15 else [
-                    "Continue routine monitoring",
-                    "Maintain standard preparedness"
-                ]
-            }
-        ]
-    
-    return []
-
-# ============================================================================
-# MOCK PROCESSING ENDPOINT (FOR TESTING WITHOUT REAL FILES)
-# ============================================================================
-
-@app.post("/mock-submit-image/{task}", response_model=JobResponse, tags=["Mock Testing"])
-async def mock_submit_image(
-    task: str,
-    background_tasks: BackgroundTasks
-):
-    """
-    Mock endpoint for testing the complete workflow without requiring real satellite images.
-    
-    This endpoint simulates the entire image processing pipeline with synthetic data.
-    It's useful for:
-    1. Frontend development and testing
-    2. API integration testing
-    3. Workflow validation
-    4. Performance testing
-    
-    **Available Tasks:**
-    - cloud_detection: Simulates cloud detection with synthetic cloud masks
-    - forest_detection: Simulates forest classification with mock vegetation data
-    - fire_prediction: Simulates fire risk prediction with synthetic heatmaps
-    
-    **Mock Data Generated:**
-    - Realistic-looking processed images
-    - Synthetic metadata with plausible values
-    - Simulated processing progress
-    - Mock alerts and notifications
-    
-    **Usage:**
-    This endpoint follows the same workflow as real processing:
-    1. Submit task → Get job_id
-    2. Poll job status → Monitor progress
-    3. Get results → Download processed images
-    
-    TODO: Remove this endpoint in production and use real processing endpoints only.
-    
-    Args:
-        task (str): Type of analysis ('cloud_detection', 'forest_detection', 'fire_prediction')
-        
-    Returns:
-        JobResponse: Job information for tracking mock processing
-    """
-    # Validate task type
-    valid_tasks = ["cloud_detection", "forest_detection", "fire_prediction"]
-    if task not in valid_tasks:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid task. Must be one of: {valid_tasks}"
-        )
-    
-    job_id = str(uuid.uuid4())
-    
-    # Create mock processing job
-    processing_jobs[job_id] = JobStatus(
-        job_id=job_id,
-        task=task,
-        status="pending",
-        created_at=datetime.now(),
-        completed_at=None,
-        tiles_to_process=random.randint(16, 36),  # Mock tile count
-        tiles_processed=0,
-        successful_tiles=0,
-        progress=0,
-        message="Mock processing job created. Starting simulation..."
-    )
-    
-    # Start mock background processing
-    background_tasks.add_task(mock_process_image, job_id, task)
-    
-    return JobResponse(
-        job_id=job_id,
-        status="pending",
-        message=f"Mock {task} job created successfully"
-    )
-
-async def mock_process_image(job_id: str, task: str):
-    """
-    Mock background processing that simulates real image analysis.
-    
-    This function:
-    1. Simulates realistic processing times
-    2. Updates progress incrementally
-    3. Generates synthetic processed images
-    4. Creates mock metadata
-    5. Handles mock alerts (for fire prediction)
-    
-    TODO: Replace this completely with real processing functions when integrating actual algorithms.
-    """
-    try:
-        # Update job status
-        processing_jobs[job_id].status = "processing"
-        processing_jobs[job_id].message = "Initializing mock processing..."
-        
-        # Simulate processing stages with realistic timing
-        stages = [
-            (10, "Loading mock image data..."),
-            (25, "Applying mock preprocessing..."),
-            (45, f"Running mock {task} algorithm..."),
-            (70, "Generating mock analysis results..."),
-            (85, "Creating mock visualization images..."),
-            (95, "Finalizing mock output...")
-        ]
-        
-        for progress, message in stages:
-            processing_jobs[job_id].progress = progress
-            processing_jobs[job_id].message = message
-            processing_jobs[job_id].tiles_processed = int((progress / 100) * processing_jobs[job_id].tiles_to_process)
-            processing_jobs[job_id].successful_tiles = processing_jobs[job_id].tiles_processed
-            
-            # Simulate processing time
-            await asyncio.sleep(random.uniform(1.0, 2.5))
-        
-        # Generate mock processed images
-        rgb_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_rgb.png")
-        cloud_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_cloud.png")
-        forest_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_forest.png")
-        fire_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_heatmap.png")
-        
-        # Generate all visualization types
-        generate_mock_rgb_image(job_id, rgb_output_path)
-        generate_mock_cloud_mask(job_id, cloud_output_path)
-        generate_mock_forest_map(job_id, forest_output_path)
-        generate_mock_fire_heatmap(job_id, fire_output_path)
-        
-        # Generate mock metadata
-        mock_metadata = generate_mock_metadata(job_id, task)
-        
-        # Calculate mock processing time
-        processing_time = (datetime.now() - processing_jobs[job_id].created_at).total_seconds()
-        
-        # Store processed image metadata
-        processed_images[job_id] = ProcessedImageResponse(
-            job_id=job_id,
-            task=task,
-            rgb_image_url=f"/static/images/{job_id}_rgb.png",
-            cloud_image_url=f"/static/images/{job_id}_cloud.png",
-            forest_image_url=f"/static/images/{job_id}_forest.png",
-            heatmap_image_url=f"/static/images/{job_id}_heatmap.png",
-            metadata=mock_metadata,
-            processing_time=processing_time
-        )
-        
-        # Mock fire risk alert system
-        if task == "fire_prediction" and mock_metadata:
-            risk_data = mock_metadata[0].get("risk_distribution", {})
-            high_risk = risk_data.get("high_risk_percent", 0) + risk_data.get("critical_risk_percent", 0)
-            
-            if high_risk > 20:  # Trigger alert for >20% high/critical risk
-                try:
-                    # TODO: Replace with real email system integration
-                    print(f"MOCK ALERT: High fire risk detected for job {job_id}")
-                    print(f"High/Critical risk areas: {high_risk:.1f}%")
-                    print("In production, this would send email via utils.mail.send_mail.py")
-                    
-                    # Mock email sending (replace with real send_mail call)
-                    # send_mail(
-                    #     subject="URGENT: High Fire Risk Detected - Satellite Analysis Alert",
-                    #     high_risk_percentage=high_risk,
-                    #     average_risk=0.7,  # Mock average risk
-                    #     job_id=job_id
-                    # )
-                    
-                except Exception as e:
-                    print(f"Mock alert system error: {e}")
-        
-        # Mark job as completed
-        processing_jobs[job_id].status = "completed"
-        processing_jobs[job_id].completed_at = datetime.now()
-        processing_jobs[job_id].progress = 100
-        processing_jobs[job_id].tiles_processed = processing_jobs[job_id].tiles_to_process
-        processing_jobs[job_id].successful_tiles = processing_jobs[job_id].tiles_to_process
-        processing_jobs[job_id].message = f"Mock {task} processing completed successfully"
-        
-        print(f"Mock processing completed for job {job_id} (task: {task})")
-        
-    except Exception as e:
-        processing_jobs[job_id].status = "failed"
-        processing_jobs[job_id].message = f"Mock processing failed: {str(e)}"
-        print(f"Mock processing error for job {job_id}: {e}")
-
-# ============================================================================
 # IMAGE VISUALIZATION FUNCTIONS
 # ============================================================================
 
@@ -1280,22 +796,78 @@ def process_forest_detection(job_id: str, cloud_job_id):
         file (UploadFile): Input satellite image
     """
     try:
+        forest_detection_job_id[cloud_job_id] = job_id
+
+        processing_jobs[job_id].status = "processing"
+
+        processing_jobs[job_id].message = "Loading image data and metadata..."
 
         metadata_path = os.path.join(METADATA_FOLDER, f"{cloud_job_id}_metadata.xlsx")
 
         metadata = pd.read_excel(metadata_path)
 
-        
+        processing_jobs[job_id].message = "Processing image..."
+
+        for i in range(metadata.shape[0]):
+
+            cloudy = metadata['cloud?'][i]
+
+            if not cloudy:
+
+                tile_path = os.path.join(TILES_IMAGES_PATH, f"{cloud_job_id}_tile_{metadata['tile_coordinates'][i]}.npy")
+
+                print(f"Processing tile: {tile_path}")
+
+                tile = np.load(tile_path)
+
+                print("Image loaded! Executing ndvi vegetation detector")
+
+                success, is_forest, veg_percentage = forest_detection.ndvi_veg_detector(tile, job_id=job_id, file_name=f"{cloud_job_id}_tile_{metadata['tile_coordinates'][i]}.npy")
+
+                print("Information about NDVI")
+                print(f"  Valid: {success}")
+                print(f"  Is Forest: {is_forest}")
+                print(f"  Vegetation Percentage: {veg_percentage:.2f}%")
+
+                processing_jobs[job_id].tiles_processed += 1
+                processing_jobs[job_id].progress = int((processing_jobs[job_id].tiles_processed / metadata.shape[0]) * 100)
+
+                if success:
+                    if is_forest:
+                        print(f"  Forest detected in {tile_path} ({veg_percentage:.2f}%)")
+                        processing_jobs[job_id].successful_tiles += 1
+                    else:
+                        print(f"  No forest detected in {tile_path} ({veg_percentage:.2f}%)")
+                else:
+                    raise ValueError(f"Forest detection failed for tile {tile_path}")
+
+                metadata.at[i, 'forest?'] = is_forest
+                metadata.at[i, 'vegetation_percentage'] = veg_percentage
+
+            else:
+                print("Tile cloudy, not processing it")
+
+        metadata.to_excel(metadata_path, index=False)
+
+        print("Plotting forest picture")
+
+        plotting.create_forest_picture(output_folder=DATA_PATH, metadata_path=metadata_path, job_id=job_id, cloud_job_id=cloud_job_id)
 
         processing_time = (datetime.now() - processing_jobs[job_id].created_at).total_seconds()
+
+        print("Processing ended!")
+
+        processing_jobs[job_id].status = "completed"
+        processing_jobs[job_id].completed_at = datetime.now()
+        processing_jobs[job_id].message = "Forest detection completed successfully"
         
         processed_images[job_id] = ProcessedImageResponse(
             job_id=job_id,
             task="forest_detection",
-            rgb_image_url=f"/static/images/{cloud_job_id}_rgb.png",
-            cloud_image_url=f"/static/images/{cloud_job_id}_cloud.png",
-            forest_image_url=f"/static/images/{job_id}_forest.png",
-            heatmap_image_url=f"/static/images/{job_id}_heatmap.png",
+            rgb_image_url=f"{cloud_job_id}_rgb.png",
+            cloud_image_url=f"{cloud_job_id}_cloud.png",
+            forest_image_url=f"{job_id}_forest.png", # Figure it out how to add it to fire prediction
+            heatmap_image_url=f"",
             metadata=metadata,
             processing_time=processing_time
         )
@@ -1304,7 +876,7 @@ def process_forest_detection(job_id: str, cloud_job_id):
         processing_jobs[job_id].status = "failed"
         processing_jobs[job_id].message = f"Processing failed: {str(e)}"
 
-def process_fire_prediction(job_id: str, file: UploadFile):
+def process_fire_prediction(job_id: str, cloud_job_id: str):
     """
     Background task for fire risk prediction processing.
     
@@ -1338,109 +910,50 @@ def process_fire_prediction(job_id: str, file: UploadFile):
         file (UploadFile): Input satellite image
     """
     try:
-        # Update job status
         processing_jobs[job_id].status = "processing"
-        processing_jobs[job_id].progress = 10
-        processing_jobs[job_id].message = "Loading image data..."
-        
-        # TODO: Implement actual fire prediction processing using existing modules
-        # Integration points:
-        # - utils/fire_prediction/unet.py for deep learning models
-        # - utils/fire_prediction/train_test.py for model training/inference
-        # - utils/preprocessing/ for data preparation
-        
-        # Simulate processing steps
-        asyncio.sleep(3)
-        processing_jobs[job_id].progress = 20
-        processing_jobs[job_id].message = "Extracting environmental features..."
 
-        asyncio.sleep(4)
-        processing_jobs[job_id].progress = 40
-        processing_jobs[job_id].message = "Running fire risk prediction model..."
+        processing_jobs[job_id].message = "Loading image data and metadata..."
 
-        asyncio.sleep(4)
-        processing_jobs[job_id].progress = 65
-        processing_jobs[job_id].message = "Generating risk probability maps..."
+        metadata_path = os.path.join(METADATA_FOLDER, f"{cloud_job_id}_metadata.xlsx")
 
-        asyncio.sleep(2)
-        processing_jobs[job_id].progress = 85
-        processing_jobs[job_id].message = "Identifying high-risk zones..."
+        metadata = pd.read_excel(metadata_path)
 
-        asyncio.sleep(2)
-        processing_jobs[job_id].progress = 100
-        processing_jobs[job_id].status = "completed"
-        processing_jobs[job_id].completed_at = datetime.now()
-        processing_jobs[job_id].message = "Fire prediction completed successfully"
-        
-        # Store processed image metadata
+        processing_jobs[job_id].message = "Processing image..."
+
+        for i in range(metadata.shape[0]):
+
+            cloudy = metadata['cloud?'][i]
+
+            if cloudy:
+                continue
+
+            tile_path = os.path.join(TILES_IMAGES_PATH, f"{cloud_job_id}_tile_{metadata['tile_coordinates'][i]}.npy")
+
+            print(f"Processing tile: {tile_path}")
+
+            tile = np.load(tile_path)
+
+            # Do whatever is needed
+
+            # Process Fire Detection
+
+            # Add result to metadata
+
+        plotting.create_heatmap(output_folder=DATA_PATH, metadata_path=metadata_path, job_id=job_id)
+
+
         processing_time = (datetime.now() - processing_jobs[job_id].created_at).total_seconds()
-        
-        # Generate visualization images
-        rgb_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_rgb.png")
-        cloud_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_cloud.png")
-        forest_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_forest.png")
-        fire_output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_heatmap.png")
-        
-        # Create placeholder images for RGB, cloud, and forest (not primary focus for fire prediction)
-        create_placeholder_image(rgb_output_path, "RGB Visualization\nNot Available\nfor Fire Prediction")
-        create_placeholder_image(cloud_output_path, "Cloud Detection\nNot Available\nfor Fire Prediction")
-        create_placeholder_image(forest_output_path, "Forest Detection\nNot Available\nfor Fire Prediction")
-        
-        # Create mock fire risk heatmap
-        generate_mock_fire_heatmap(job_id, fire_output_path)
-        
-        # Generate realistic fire prediction metadata
-        fire_metadata = generate_mock_metadata(job_id, "fire_prediction")
-        
-        # Extract risk data for alert system
-        high_risk_percentage = 0
-        average_risk_score = 0
-        if fire_metadata and len(fire_metadata) > 0:
-            risk_dist = fire_metadata[0].get("risk_distribution", {})
-            high_risk_percentage = risk_dist.get("high_risk_percent", 0) + risk_dist.get("critical_risk_percent", 0)
-            env_factors = fire_metadata[0].get("environmental_factors", {})
-            temp = env_factors.get("avg_temperature_celsius", 25)
-            humidity = env_factors.get("humidity_percent", 50)
-            wind = env_factors.get("wind_speed_kmh", 10)
-            # Calculate average risk based on environmental factors
-            average_risk_score = min(0.95, (temp/40 + (100-humidity)/100 + wind/30) / 3)
         
         processed_images[job_id] = ProcessedImageResponse(
             job_id=job_id,
             task="fire_prediction",
-            rgb_image_url=f"/static/images/{job_id}_rgb.png",
-            cloud_image_url=f"/static/images/{job_id}_cloud.png",
-            forest_image_url=f"/static/images/{job_id}_forest.png",
-            heatmap_image_url=f"/static/images/{job_id}_heatmap.png",
-            metadata=fire_metadata,
+            rgb_image_url=f"{cloud_job_id}_rgb.png",
+            cloud_image_url=f"{cloud_job_id}_cloud.png",
+            forest_image_url=f"{forest_detection_job_id[cloud_job_id]}_forest.png",
+            heatmap_image_url=f"{job_id}_heatmap.png",
+            metadata=metadata,
             processing_time=processing_time
         )
-        
-        # Send email alert if high fire risk is detected
-        if high_risk_percentage > 20 or average_risk_score > 0.6:
-            try:
-                # TODO: Replace with actual email system integration
-                # Real integration would use: send_mail() from utils.mail.send_mail
-                print(f"MOCK ALERT: High fire risk detected for job {job_id}")
-                print(f"High/Critical risk areas: {high_risk_percentage:.1f}%")
-                print(f"Average risk score: {average_risk_score:.2f}")
-                print("In production, this would send email via utils.mail.send_mail.py")
-                
-                # Uncomment when email system is properly configured:
-                # send_mail(
-                #     subject="URGENT: High Fire Risk Detected - Satellite Analysis Alert",
-                #     high_risk_percentage=high_risk_percentage,
-                #     average_risk=average_risk_score,
-                #     job_id=job_id
-                # )
-                
-                # Update metadata to indicate alert was processed
-                if fire_metadata and len(fire_metadata) > 0:
-                    fire_metadata[0]["alert_sent"] = True
-                    processing_jobs[job_id].message += " | High-risk alert processed"
-                
-            except Exception as e:
-                print(f"Mock alert system error: {e}")
         
     except Exception as e:
         processing_jobs[job_id].status = "failed"

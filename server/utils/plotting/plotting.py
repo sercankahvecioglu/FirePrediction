@@ -166,7 +166,7 @@ def create_cloud_mask_visualization(output_folder, metadata_path, job_id=None):
     return True
 
 
-def create_forest_picture(image_data, output_folder, metadata_path, job_id=None):
+def create_forest_picture(output_folder, metadata_path, job_id=None, cloud_job_id=None):
     """
     Create a forest picture from the image data.
 
@@ -182,17 +182,81 @@ def create_forest_picture(image_data, output_folder, metadata_path, job_id=None)
     try:
         print(f"Processing forest picture for: {job_id}")
 
-        # Check if image data is valid
-        if image_data is None:
-            print(f"  ✗ Invalid image data for {job_id}")
-            return False
+        print("Loading metadata...")
 
-        # Create output filename
-        output_path = os.path.join(output_folder, f"{job_id}_forest.png")
+        metadata = pd.read_excel(metadata_path)
+        TILES_IMAGES_PATH = os.path.join(output_folder, "TILES_IMAGES")
+        DISPLAY_PATH = os.path.join(output_folder, "DISPLAY")
 
-        # Save as PNG using PIL
-        pil_image = Image.fromarray(image_data.astype(np.uint8))
-        pil_image.save(output_path)
+        coords = [eval(c) for c in metadata['tile_coordinates']]
+        rows = sorted(set(r for r, _ in coords))
+        cols = sorted(set(c for _, c in coords))
+
+        tile_dict_rgb = {}
+        tile_dict_ndvi = {}
+
+        for i in range(metadata.shape[0]):
+
+            is_cloudy = metadata['cloud?'][i]
+            is_forest = metadata['forest?'][i]
+
+            coord = eval(metadata['tile_coordinates'][i])  # (row, col)
+
+            if not is_cloudy and is_forest:
+
+                tile_path = os.path.join(TILES_IMAGES_PATH, f"{cloud_job_id}_tile_{metadata['tile_coordinates'][i]}.npy")
+
+                tile = np.load(tile_path)
+
+                # Calculate ndvi for display purposes
+
+                nir = tile[..., 7].astype(np.float32)
+                red = tile[..., 3].astype(np.float32)
+
+                ndvi = np.divide(nir - red, nir + red,
+                                out=np.zeros_like(nir), where=(nir + red) != 0)
+
+                rgb = tile[:,:,[3,2,1]]  # Extract RGB bands for display
+                gamma = 1.2  # >1 aclara sombras y realza color
+                rgb = np.power(rgb * 255.0, gamma) / 255.0
+
+            else:
+                if is_cloudy:
+                    # Black
+                    rgb = np.zeros((256, 256, 3), dtype=np.float32)
+                else:
+                    # Red
+                    rgb = np.zeros((256, 256, 3), dtype=np.float32)
+                    rgb[..., 0] = 255  # Set red channel to 255
+                ndvi = np.zeros((256, 256), dtype=np.float32)
+
+            tile_dict_rgb[coord] = rgb
+            tile_dict_ndvi[coord] = ndvi
+
+        # Display everything
+        full_rgb_rows = []
+        full_ndvi_rows = []
+
+        for r in rows:
+            rgb_row = [tile_dict_rgb[(r,c)] for c in cols]
+            ndvi_row = [tile_dict_ndvi[(r,c)] for c in cols]
+            full_rgb_rows.append(np.hstack(rgb_row))
+            full_ndvi_rows.append(np.hstack(ndvi_row))
+
+        full_rgb = np.vstack(full_rgb_rows)
+        full_ndvi = np.vstack(full_ndvi_rows)
+
+        fig, ax = plt.subplots(1, 2, figsize=(20, 10))
+        ax[0].imshow(full_rgb)
+        ax[0].set_title("Original RGB Image")
+        ax[0].axis("off")
+
+        ax[1].imshow(full_ndvi, cmap="RdYlGn")
+        ax[1].set_title("NDVI Image")
+        ax[1].axis("off")
+        
+        plt.savefig(os.path.join(DISPLAY_PATH, f"{job_id}_forest.png"))
+        
 
     except Exception as e:
         print(f"  ✗ Error processing forest picture for {job_id}: {e}")
