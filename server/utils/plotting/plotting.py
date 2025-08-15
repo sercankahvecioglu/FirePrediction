@@ -264,12 +264,11 @@ def create_forest_picture(output_folder, metadata_path, job_id=None, cloud_job_i
 
     return True
 
-def create_heatmap(image_data, output_folder, metadata_path, job_id=None):
+def create_heatmap(output_folder, metadata_path, job_id=None):
     """
     Create a heatmap from the image data.
 
     Args:
-        image_path (str): Path to the input image
         output_folder (str): Path to the output folder
         metadata_path (str): Path to the metadata file
         job_id (str, optional): Job ID for tracking purposes
@@ -277,20 +276,66 @@ def create_heatmap(image_data, output_folder, metadata_path, job_id=None):
     Returns:
         bool: True if successful, False otherwise
     """
+    
     try:
+        FIRE_DATA_FOLDER = os.path.join(output_folder, "FIRE_IMAGES")
+        DISPLAY_FOLDER = os.path.join(output_folder, "DISPLAY")
+        
+        # Create DISPLAY folder if it doesn't exist
+        os.makedirs(DISPLAY_FOLDER, exist_ok=True)
+
+        metadata = pd.read_excel(metadata_path)
+
+        coords = [eval(c) for c in metadata['tile_coordinates']]
+        rows = sorted(set(r for r, _ in coords))
+        cols = sorted(set(c for _, c in coords))
+
+        fire_prob_dict = {}
+
+        for i in range(metadata.shape[0]):
+            coord = eval(metadata['tile_coordinates'][i])  # (row, col)
+            is_cloudy = metadata['cloud?'][i]
+            is_forest = metadata['forest?'][i]
+
+            if not is_cloudy and is_forest:
+                fire_prob_file = os.path.join(FIRE_DATA_FOLDER, f"{job_id}_tile_{metadata['tile_coordinates'][i]}_fire_prob.npy")
+                if os.path.exists(fire_prob_file):
+                    fire_prob = np.load(fire_prob_file)
+                    # Squeeze extra dimensions to get (256, 256) shape
+                    fire_prob = np.squeeze(fire_prob)
+                    fire_prob_dict[coord] = fire_prob
+                else:
+                    fire_prob_dict[coord] = np.ones((256, 256), dtype=np.float32)
+
+            else:
+                fire_prob_dict[coord] = np.ones((256, 256), dtype=np.float32)
+
         print(f"Processing heatmap for: {job_id}")
 
-        # Check if image data is valid
-        if image_data is None:
-            print(f"  ✗ Invalid image data for {job_id}")
-            return False
+        fire_prob_rows = []
+        for r in rows:
+            fire_prob_row = [fire_prob_dict.get((r, c), np.zeros((256, 256), dtype=np.float32)) for c in cols]
+            fire_prob_rows.append(np.hstack(fire_prob_row))
+
+        full_fire_prob = np.vstack(fire_prob_rows)
+
+        # Create and display heatmap
+        fig, ax = plt.subplots(figsize=(10, 10))
+        im = ax.imshow(full_fire_prob, cmap="hot", interpolation="nearest", vmin=0, vmax=1)
+        ax.set_title(f"Fire Probability Heatmap - {job_id}")
+        ax.axis("off")
+        
+        # Add colorbar
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
 
         # Create output filename
-        output_path = os.path.join(output_folder, f"{job_id}_heatmap.png")
+        output_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_heatmap.png")
 
-        # Save as PNG using PIL
-        pil_image = Image.fromarray(image_data.astype(np.uint8))
-        pil_image.save(output_path)
+        # Save and display image
+        plt.savefig(output_path, bbox_inches='tight', dpi=150)
+        plt.show()
+        
+        print(f"Heatmap saved to: {output_path}")
 
     except Exception as e:
         print(f"  ✗ Error processing heatmap for {job_id}: {e}")

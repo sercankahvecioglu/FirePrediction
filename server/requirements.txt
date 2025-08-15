@@ -18,9 +18,3 @@ opencv-python>=4.8.0
 google-api-python-client
 google-auth-httplib2
 google-auth-oauthlib
-
-# Additional dependencies for satellite image processing
-# TODO: Add these when integrating with real algorithms:
-# tensorflow>=2.13.0  # For deep learning models (fire_prediction/unet.py)
-# rasterio>=1.3.0     # For satellite image reading
-# geopandas>=0.14.0   # For geographic data processing
