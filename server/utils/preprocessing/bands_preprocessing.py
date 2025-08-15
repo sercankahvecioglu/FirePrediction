@@ -102,7 +102,7 @@ def extract_tiles_with_padding(image_path, name, tile_size, path):
 
     image = np.load(image_path)
 
-    metadata = pd.DataFrame(columns=['tile_number', 'tile_name', 'tile_coordinates', 'cloud_percentage', 'cloud?', 'forest?'])
+    metadata = pd.DataFrame(columns=['tile_number', 'tile_name', 'tile_coordinates', 'cloud_percentage', 'cloud?', 'vegetation_percentage', 'forest?'])
 
     h, w, c = image.shape
     ph, pw, pc = tile_size
