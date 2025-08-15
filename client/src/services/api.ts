@@ -51,13 +51,16 @@ async function submitImageForCloudDetection(file: File, tileSize: number = 256):
     method: 'POST',
     body: formData,
   });
-
+  
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
     throw new Error(errorData.detail || 'Failed to submit image for processing');
   }
 
-  return response.json();
+  const jobResponse: JobResponse = await response.json();
+
+  return jobResponse;
+  
 }
 
 // Submit image for forest detection processing
@@ -174,15 +177,37 @@ export async function predict(
     
     // Step 2: Poll for completion with progress updates
     onProgress?.(20, 'Processing started, waiting for completion...');
-    
-    await pollJobStatus(jobResponse.job_id, (status) => {
+
+    while(true) {
+
+      const statusResponse = await fetch(`${API_BASE_URL}/job-status/${jobResponse.job_id}`);
+      if (!statusResponse.ok) {
+        const errorData = await statusResponse.json().catch(() => ({}));
+        throw new Error(errorData.detail || 'Failed to get job status');
+      }
+      
+      const status: JobStatus = await statusResponse.json();
+
+      if(status.status === 'failed') {
+        throw new Error(status.message || 'Processing failed');
+      }
+      else if (status.status === 'completed') {
+        break; // Exit loop if processing is complete}
+      }
+
+      await pollJobStatus(jobResponse.job_id, (status) => {
       // Map backend progress (0-100) to our progress range (20-90)
       const mappedProgress = 20 + Math.floor((status.progress / 100) * 70);
       onProgress?.(mappedProgress, status.message);
-    });
+      });
 
+      onProgress?.(90, 'Retrieving processed images...');
+
+      // Wait before polling again
+      await new Promise(resolve => setTimeout(resolve, 2000));    
+    }
+    
     // Step 3: Get the final result
-    onProgress?.(90, 'Retrieving processed images...');
     const result = await getProcessingResult(jobResponse.job_id);
     
     onProgress?.(100, 'Processing completed successfully!');
