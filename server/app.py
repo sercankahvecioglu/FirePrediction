@@ -861,6 +861,18 @@ def process_forest_detection(job_id: str, cloud_job_id):
         processing_jobs[job_id].completed_at = datetime.now()
         processing_jobs[job_id].message = "Forest detection completed successfully"
         
+        metadata_list = []
+        for _, row in metadata.iterrows():
+            metadata_list.append({
+                "tile_id": f"tile_{row['tile_coordinates']}",
+                "coordinates": str(row['tile_coordinates']),  # Convertir a string para serialización
+                "cloud_coverage": float(row.get('cloud_percentage', 0)),
+                "is_cloudy": bool(row.get('cloud?', False)),
+                "vegetation_percentage": float(row.get('vegetation_percentage', 0)),
+                "is_forest": bool(row.get('forest?', False)),
+                "tile_path": f"{cloud_job_id}_tile_{row['tile_coordinates']}.npy"
+            })
+
         processed_images[job_id] = ProcessedImageResponse(
             job_id=job_id,
             task="forest_detection",
@@ -868,7 +880,7 @@ def process_forest_detection(job_id: str, cloud_job_id):
             cloud_image_url=f"{cloud_job_id}_cloud.png",
             forest_image_url=f"{job_id}_forest.png", # Figure it out how to add it to fire prediction
             heatmap_image_url=f"",
-            metadata=metadata,
+            metadata=metadata_list,
             processing_time=processing_time
         )
         
@@ -924,6 +936,9 @@ def process_fire_prediction(job_id: str, cloud_job_id: str):
 
             cloudy = metadata['cloud?'][i]
 
+            processing_jobs[job_id].tiles_processed += 1
+            processing_jobs[job_id].progress = int((processing_jobs[job_id].tiles_processed / metadata.shape[0]) * 100)
+
             if cloudy:
                 continue
 
@@ -961,11 +976,26 @@ def process_fire_prediction(job_id: str, cloud_job_id: str):
             np.save(os.path.join(FIRE_IMAGES_PATH, f"{job_id}_tile_{metadata['tile_coordinates'][i]}_fire_mask.npy"), fire_mask)
             np.save(os.path.join(FIRE_IMAGES_PATH, f"{job_id}_tile_{metadata['tile_coordinates'][i]}_fire_prob.npy"), fire_prob)
 
-            # Add result to metadata
+
 
         plotting.create_heatmap(DATA_PATH, metadata_path=metadata_path, job_id=job_id)
 
         processing_time = (datetime.now() - processing_jobs[job_id].created_at).total_seconds()
+
+        processing_jobs[job_id].status = "completed"
+        processing_jobs[job_id].message = "Processing completed successfully."
+
+        metadata_list = []
+        for _, row in metadata.iterrows():
+            metadata_list.append({
+                "tile_id": f"tile_{row['tile_coordinates']}",
+                "coordinates": str(row['tile_coordinates']),  # Convertir a string para serialización
+                "cloud_coverage": float(row.get('cloud_percentage', 0)),
+                "is_cloudy": bool(row.get('cloud?', False)),
+                "vegetation_percentage": float(row.get('vegetation_percentage', 0)),
+                "is_forest": bool(row.get('forest?', False)),
+                "tile_path": f"{cloud_job_id}_tile_{row['tile_coordinates']}.npy"
+            })
         
         processed_images[job_id] = ProcessedImageResponse(
             job_id=job_id,
@@ -974,7 +1004,7 @@ def process_fire_prediction(job_id: str, cloud_job_id: str):
             cloud_image_url=f"{cloud_job_id}_cloud.png",
             forest_image_url=f"{forest_detection_job_id[cloud_job_id]}_forest.png",
             heatmap_image_url=f"{job_id}_heatmap.png",
-            metadata=metadata,
+            metadata=metadata_list,
             processing_time=processing_time
         )
         
