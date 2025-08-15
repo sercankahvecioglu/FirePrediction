@@ -6,7 +6,7 @@ import glob
 
 def create_prediction_comparison_plots(labels_dir="/home/dario/Desktop/FirePrediction/TEST_LABELS", 
                                      preds_dir="/home/dario/Desktop/FirePrediction/TEST_PREDS",
-                                     output_dir="/home/dario/Desktop/FirePrediction/PREDS_VS_LABELS"):
+                                     output_dir="/home/dario/Desktop/FirePrediction/TEST_PREDS_VS_LABELS"):
     """
     Creates side-by-side comparison plots of predictions vs ground truth labels.
     
@@ -36,33 +36,30 @@ def create_prediction_comparison_plots(labels_dir="/home/dario/Desktop/FirePredi
         try:
             # Load arrays
             label_array = np.load(label_file).squeeze()  # Remove extra dimension
-            pred_array = np.load(pred_file)
+            pred_array = np.load(pred_file).squeeze()  # Remove extra dimension
             
-            # Calculate error - for multiclass, show misclassification
-            error_array = (label_array != pred_array).astype(float)
+            # Calculate error - show absolute difference between prediction and ground truth
+            error_array = np.abs(pred_array - label_array)
             accuracy = np.mean(label_array == pred_array)
-            
-            # Get number of classes for colormap scaling
-            num_classes = max(int(np.max(label_array)), int(np.max(pred_array))) + 1
             
             # Create three-subplot plot
             fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5))
             
-            # Plot ground truth with discrete colormap
-            im1 = ax1.imshow(label_array, cmap='viridis', vmin=0, vmax=num_classes-1)
+            # Plot ground truth with grayscale for continuous values
+            im1 = ax1.imshow(label_array, cmap='gray', vmin=0, vmax=1)
             ax1.set_title('Ground Truth')
             ax1.axis('off')
-            plt.colorbar(im1, ax=ax1, shrink=0.8, ticks=range(num_classes))
+            plt.colorbar(im1, ax=ax1, shrink=0.8)
             
-            # Plot prediction with discrete colormap
-            im2 = ax2.imshow(pred_array, cmap='viridis', vmin=0, vmax=num_classes-1)
+            # Plot prediction with grayscale for continuous values
+            im2 = ax2.imshow(pred_array, cmap='gray', vmin=0, vmax=1)
             ax2.set_title('Prediction')
             ax2.axis('off')
-            plt.colorbar(im2, ax=ax2, shrink=0.8, ticks=range(num_classes))
+            plt.colorbar(im2, ax=ax2, shrink=0.8)
             
-            # Plot misclassification in red/white
+            # Plot error with sequential colormap
             im3 = ax3.imshow(error_array, cmap='Reds', vmin=0, vmax=1)
-            ax3.set_title(f'Misclassification (Accuracy: {accuracy:.4f})')
+            ax3.set_title(f'Absolute Error |Pred - Truth| (MAE: {np.mean(error_array):.4f})')
             ax3.axis('off')
             plt.colorbar(im3, ax=ax3, shrink=0.8)
             

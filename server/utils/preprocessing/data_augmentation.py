@@ -5,7 +5,6 @@ import os
 import glob
 from pathlib import Path
 
-
 # NOTE: input data should be of type (h, w, c)
 
 def rotate_90(data):

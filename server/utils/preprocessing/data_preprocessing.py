@@ -1,14 +1,15 @@
 import os
-from .bands_preprocessing import *
 import sys
 
-# Add clouddetector to the path
+# Add server directory to the path to access forest_detection and cloud_detection modules
 sys.path.append(
-    os.path.abspath(os.path.join(os.getcwd(), "..", "cloud_detection"))
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 )
 
 
-from cloud_detection import is_cloudy
+from bands_preprocessing import *
+from utils.forest_detection.veg_model_eval import ndvi_veg_detector
+from utils.cloud_detection import is_cloudy
 
 import time
 from shutil import copy2
@@ -65,7 +66,7 @@ class BaseProcessor():
         print(f"Using S2PixelCloudDetector with % of cloudy pixels threshold: {self.cloud_threshold}")
         init_time = time.time()
         cloud_detector = S2PixelCloudDetector(threshold=0.4, average_over=4, dilation_size=2, all_bands=True)
-        cloud_results = is_cloudy(self.base_path, cloud_detector=cloud_detector, cloud_threshold=self.cloud_threshold)
+        cloud_results = is_cloudy(self.tiles_input_path, cloud_detector=cloud_detector, cloud_threshold=self.cloud_threshold)
         dt = time.time() - init_time
         print(f"✓ Cloud detection completed in {dt:.1f} seconds. Clean tiles: {cloud_results['clean_tiles']}, Cloudy tiles moved: {cloud_results['cloudy_tiles']}")
         return cloud_results
@@ -126,13 +127,13 @@ class TrainDataProcessor(BaseProcessor):
         post_path = os.path.join(self.base_path, 'data', f'{self.dataset_name}_post.npy')
         print("\n--- Step 1: Creating label map (dNBR with NDVI masking) ---")
         os.makedirs(self.full_labels_path, exist_ok=True)
-        dnbr_path = extract_data_labels(pre_path, post_path, self.full_labels_path)
+        dnbr_path = extract_data_labels(self.dataset_name, pre_path, post_path, self.full_labels_path)
         print("✓ dNBR label map with NDVI masking created")
         return dnbr_path
     
     def _extract_label_tiles(self):
         """Extract tiles from the dNBR label map"""
-        dnbr_path = os.path.join(self.full_labels_path, 'dnbr_normalized.npy')
+        dnbr_path = os.path.join(self.full_labels_path, f'{self.dataset_name}_dnbr_heatmap.npy')
         print("\n--- Step 2.5: Extracting label tiles from dNBR map ---")
         init_time = time.time()
         # Labels have 1 channel (height, width, 1)

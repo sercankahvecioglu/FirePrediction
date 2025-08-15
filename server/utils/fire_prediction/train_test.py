@@ -1,12 +1,41 @@
 import torch
-from torch.utils.data import DataLoader, random_split  
-from FirePredictionModel.unet import UNet
+from torch.utils.data import DataLoader, random_split, WeightedRandomSampler
+from unet import UNet
 import numpy as np
 from tqdm import tqdm
-from sklearn.metrics import accuracy_score
 import os   
-from FirePredictionModel.datasets import Sent2Dataset
-from FirePredictionModel.loss_metrics import GeneralizedDiceLoss, calculate_class_weights, compute_mean_iou, compute_sensitivity_classes_1_2
+from datasets import *
+
+def init_final_bias(model, target_prob=0.7):
+    """
+    Initialize final layer bias to favor high-risk predictions
+    target_prob: initial output probability (0.5-0.8 recommended for fire risk)
+    """
+    
+    # Convert probability to logit for sigmoid activation
+    bias_value = np.log(target_prob / (1 - target_prob))
+    
+    # Find and initialize the final convolutional layer
+    final_layers = [m for m in model.modules() if isinstance(m, torch.nn.Conv2d)]
+    if final_layers:
+        final_layers[-1].bias.data.fill_(bias_value)
+        print(f"Initialized final layer bias to {bias_value:.3f} (target prob: {target_prob:.1f})")
+
+
+#------------------------------------------------------------
+
+# R-squared calculation function
+def calculate_r2(predictions, targets):
+    """Calculate R-squared coefficient"""
+    # Flatten tensors for calculation
+    pred_flat = predictions.view(-1)
+    target_flat = targets.view(-1)
+    
+    # Calculate R-squared
+    ss_res = torch.sum((target_flat - pred_flat) ** 2)
+    ss_tot = torch.sum((target_flat - torch.mean(target_flat)) ** 2)
+    r2 = 1 - (ss_res / ss_tot)
+    return r2.item()
 
 # main train loop
 def train_model(model, train_loader, val_loader, criterion, optimizer, device, epochs=10):
@@ -23,15 +52,12 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
         all_preds = []
         all_labels = []
 
-        for x, y, coords in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} (Train)"):
-            x, y = x.to(device), y.to(device).long().squeeze(1)  # Remove channel dimension
+        for x, y in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} (Train)"):
+            x, y = x.to(device), y.to(device).float()  # Keep as float for regression
 
             optimizer.zero_grad()
-            # output logits
+            # output probabilities
             outputs = model(x)
-
-            # apply argmax along channel dimension (dim=1) to get predicted classes
-            preds = torch.argmax(outputs, dim=1)
             
             # loss calculation
             loss = criterion(outputs, y)
@@ -43,20 +69,20 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
 
             train_loss += loss.item()
 
-            preds = preds.cpu().detach()
-            all_preds.extend(preds.numpy())
-            all_labels.extend(y.cpu().numpy())
+            outputs = outputs.cpu().detach()
+            all_preds.append(outputs)
+            all_labels.append(y.cpu())
 
         # epoch training metrics calculation
         train_loss /= len(train_loader)
         
-        # Flatten arrays for metrics calculation
-        all_preds_flat = np.array(all_preds).flatten()
-        all_labels_flat = np.array(all_labels).flatten()
+        # Concatenate all predictions and labels
+        all_preds = torch.cat(all_preds, dim=0)
+        all_labels = torch.cat(all_labels, dim=0)
         
-        train_acc = accuracy_score(all_labels_flat, all_preds_flat)
-        train_miou = compute_mean_iou(all_labels_flat, all_preds_flat, n_classes=3)
-        train_sens_12 = compute_sensitivity_classes_1_2(all_labels_flat, all_preds_flat)
+        train_mae = torch.nn.functional.l1_loss(all_preds, all_labels).item()
+        train_rmse = torch.sqrt(torch.nn.functional.mse_loss(all_preds, all_labels)).item()
+        train_r2 = calculate_r2(all_preds, all_labels)
 
         # validation phase
         model.eval()
@@ -66,50 +92,49 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
 
         # no update of parameters
         with torch.no_grad():
-            for x, y, coords in tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} (Val)"):
-                x, y = x.to(device), y.to(device).long().squeeze(1)  # Remove channel dimension
+            for x, y in tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} (Val)"):
+                x, y = x.to(device), y.to(device).float()  # Keep as float for regression
 
                 outputs = model(x)
-                preds = torch.argmax(outputs, dim=1)
                 loss = criterion(outputs, y)
 
                 val_loss += loss.item()
 
-                preds = preds.cpu().detach()
-                all_val_preds.extend(preds.numpy())
-                all_val_labels.extend(y.cpu().numpy())
+                outputs = outputs.cpu().detach()
+                all_val_preds.append(outputs)
+                all_val_labels.append(y.cpu())
 
         # validation metrics calculation
         val_loss /= len(val_loader)
         
-        # Flatten arrays for metrics calculation
-        all_val_preds_flat = np.array(all_val_preds).flatten()
-        all_val_labels_flat = np.array(all_val_labels).flatten()
+        # Concatenate all predictions and labels
+        all_val_preds = torch.cat(all_val_preds, dim=0)
+        all_val_labels = torch.cat(all_val_labels, dim=0)
         
-        val_acc = accuracy_score(all_val_labels_flat, all_val_preds_flat)
-        val_miou = compute_mean_iou(all_val_labels_flat, all_val_preds_flat, n_classes=3)
-        val_sens_12 = compute_sensitivity_classes_1_2(all_val_labels_flat, all_val_preds_flat)
+        val_mae = torch.nn.functional.l1_loss(all_val_preds, all_val_labels).item()
+        val_rmse = torch.sqrt(torch.nn.functional.mse_loss(all_val_preds, all_val_labels)).item()
+        val_r2 = calculate_r2(all_val_preds, all_val_labels)
 
         # print results update
         print(f"Epoch {epoch + 1}:")
-        print(f"  Train Loss: {train_loss:.4f} | Acc: {train_acc:.4f} | mIoU: {train_miou:.4f} | Sens(1,2): {train_sens_12:.4f}")
-        print(f"  Val Loss: {val_loss:.4f}   | Acc: {val_acc:.4f} | mIoU: {val_miou:.4f} | Sens(1,2): {val_sens_12:.4f}\n")
+        print(f"  Train Loss: {train_loss:.6f} | MAE: {train_mae:.6f} | RMSE: {train_rmse:.6f} | R²: {train_r2:.6f}")
+        print(f"  Val Loss: {val_loss:.6f}   | MAE: {val_mae:.6f} | RMSE: {val_rmse:.6f}   | R²: {val_r2:.6f}\n")
 
         # saving best model at each epoch, if val loss improves
         if val_loss < best_val_loss:
             not_improved_epochs = 0
             best_val_loss = val_loss
-            # Save the entire model (architecture + weights)
-            torch.save(model.state_dict(), f"/home/dario/Desktop/FirePrediction/trained_models/best_fireprediction_model.pth")
+            # save model weights
+            torch.save(model.state_dict(), f"/home/dario/Desktop/FirePrediction/server/utils/trained_models/best_fireprediction_model.pth")
+            #-------------------------------------------
+            # TODO: PLACEHOLDER FOR SAVING TO ONNX FORMAT
+            #-------------------------------------------
             print(f"  --> Saved best model (val_loss improved)\n")
         else: 
             not_improved_epochs += 1
             if not_improved_epochs == 5:
-                print(f"Model training stopped early due to no improvement for f{not_improved_epochs} epochs.\n")
+                print(f"Model training stopped early due to no improvement for {not_improved_epochs} epochs.\n")
                 return model
-                
-        
-
 
     print("\nTraining completed!")
     return model
@@ -122,53 +147,49 @@ def evaluate_model(model, test_loader, device, filenames, output_dir='/home/dari
     all_preds = []
     all_labels = []
     
-    sample_idx = 0
-
     with torch.no_grad():
         for batch_idx, (x, y, coords) in enumerate(tqdm(test_loader, desc="Testing")):
             
-            x, y = x.to(device), y.to(device).long().squeeze(1)  # Remove channel dimension
+            x, y = x.to(device), y.to(device).float()  # Keep as float for regression
 
             outputs = model(x)
             
-            preds = torch.argmax(outputs, dim=1)
-            
-            preds = preds.cpu().detach()
+            outputs = outputs.cpu().detach()
 
-            all_preds.extend(preds.numpy())
-            all_labels.extend(y.cpu().numpy())
+            all_preds.append(outputs)
+            all_labels.append(y.cpu())
 
             os.makedirs(output_dir, exist_ok=True)
 
             # Save each prediction in the batch
-            for j, pred in enumerate(preds):
+            for j, pred in enumerate(outputs):
                 # Get raw prediction array
-                pred_array = pred.numpy().squeeze()
+                pred_array = pred.numpy()
                 
                 # Use batch_idx * batch_size + j to get correct filename index
-                filename_idx = batch_idx * len(preds) + j
+                filename_idx = batch_idx * len(outputs) + j
                 original_filename = os.path.basename(filenames[filename_idx]).replace('.npy', '')
                 
                 # Save as .npy file
                 np.save(os.path.join(output_dir, f'{original_filename}_prediction.npy'), pred_array)
 
-        all_preds_flat = np.array(all_preds).flatten()
-        all_labels_flat = np.array(all_labels).flatten()
+        # Concatenate all predictions and labels
+        all_preds = torch.cat(all_preds, dim=0)
+        all_labels = torch.cat(all_labels, dim=0)
 
     # metrics
-    acc = accuracy_score(all_labels_flat, all_preds_flat)
-    miou = compute_mean_iou(all_labels_flat, all_preds_flat, n_classes=3)
-    sens_12 = compute_sensitivity_classes_1_2(all_labels_flat, all_preds_flat)
+    mae = torch.nn.functional.l1_loss(all_preds, all_labels).item()
+    rmse = torch.sqrt(torch.nn.functional.mse_loss(all_preds, all_labels)).item()
+    r2 = calculate_r2(all_preds, all_labels)
 
-    print(f"\nTest Accuracy: {acc:.4f} | Test mIoU: {miou:.4f} | Test Sens(1,2): {sens_12:.4f}")
+    print(f"\nTest MAE: {mae:.6f} | Test RMSE: {rmse:.6f} | Test R²: {r2:.6f}")
 
 
 #-------------------------main.py section-------------------------
 
-
-train_dataset = Sent2Dataset("/home/dario/Desktop/FirePrediction/TILES_INPUT_DATA", 
-                             "/home/dario/Desktop/FirePrediction/TILES_LABELS")
-test_dataset = Sent2Dataset("/home/dario/Desktop/FirePrediction/TEST_INPUT_DATA",
+train_dataset = TrainingDataset("/home/dario/Desktop/FirePrediction/inputs", 
+                             "/home/dario/Desktop/FirePrediction/labels")
+test_dataset = TestingDataset("/home/dario/Desktop/FirePrediction/TEST_INPUT_DATA",
                             "/home/dario/Desktop/FirePrediction/TEST_LABELS")
 
 # --- train-val split ---
@@ -180,42 +201,31 @@ train_subset, val_subset = random_split(train_dataset, [train_len, val_len], gen
 train_loader = DataLoader(train_subset, batch_size=16, shuffle=True)
 val_loader = DataLoader(val_subset, batch_size=16, shuffle=False)
 
-# calculate proper class weights (for weighted dice loss) based on inverse frequency from training data
-fire_class_weights = calculate_class_weights(train_loader, n_classes=3).to('cuda')
-
 n_channels = len(test_dataset.band_indices)
 test_filenames = test_dataset.input_list
 test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
 
 # architecture definition (setting n channels as following input data bands channels)
-unet_model = UNet(n_channels, out_channels=3).to('cuda')
+unet_model = UNet(n_channels, out_channels=1).to('cuda')
+init_final_bias(unet_model, target_prob=0.7) 
 
-# optimizer & loss definition 
-optimizer = torch.optim.Adam(unet_model.parameters(), lr=0.001, weight_decay=1e-4)  
-criterion = GeneralizedDiceLoss(class_weights=fire_class_weights)
+
+# optimizer & loss definition
+optimizer = torch.optim.Adam(unet_model.parameters(), lr=0.001)  
+scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+    optimizer, mode='min', factor=0.5, patience=5
+)
+
+# Use MSE loss for regression
+criterion = torch.nn.MSELoss()
+
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
-
-"""
-# For debugging, let's check the class distribution in the data
-print("Checking class distribution in training data...")
-class_counts = {0: 0, 1: 0, 2: 0}
-for i, (x, y, coords) in enumerate(train_loader):
-    if i >= 10:  # Check first 10 batches
-        break
-    y_flat = y.flatten()
-    unique, counts = torch.unique(y_flat, return_counts=True)
-    for cls, count in zip(unique, counts):
-        class_counts[cls.item()] += count.item()
-
-total_pixels = sum(class_counts.values())
-print(f"Class distribution: {[(cls, count, f'{count/total_pixels*100:.1f}%') for cls, count in class_counts.items()]}")
-"""
 
 trained_model = train_model(unet_model, train_loader, val_loader, criterion, optimizer, device, 25)
 
 #-----------------------------------------------------------------
 
 # to reload previous model
-unet_model.load_state_dict(torch.load('/home/dario/Desktop/FirePrediction/best_fireprediction_model.pth', weights_only=True))
+unet_model.load_state_dict(torch.load('/home/dario/Desktop/FirePrediction/server/utils/trained_models/best_fireprediction_model.pth', weights_only=True))
 
-evaluate_model(unet_model, test_loader, 'cuda', test_filenames)
+evaluate_model(unet_model, test_loader, 'cuda', test_dataset.input_list)

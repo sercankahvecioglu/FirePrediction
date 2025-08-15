@@ -8,6 +8,8 @@ inputs*
 labels*
 IMGS*
 POST*
+TRAIN*
+TEST*
 *__pycache__*
 full_labels*
 PREDS_VS_LABELS

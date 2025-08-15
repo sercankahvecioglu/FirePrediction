@@ -7,17 +7,17 @@ BAND_ORDER = ['B01', 'B02', 'B03', 'B04', 'B05', 'B06', 'B07', 'B08', 'B8A', 'B0
 
 
 # extract the dNBR map (of values between 0 and 1) and the dNBR binary map
-def extract_data_labels(pre_bands_fpath, post_bands_fpath, output_dir: str, masking: bool = True, thresh: list = [0.2 ,0.4], ndvi_thresh: float = 0.2):
+def extract_data_labels(dataset_name, pre_bands_fpath, post_bands_fpath, output_dir: str, masking: bool = True, ndvi_thresh: float = 0.2):
     """
     Create data labels from Sentinel-2 images by considering the dNBR value (with NDVI masking)
     
     Params:
+        - dataset_name: name of dataset, to use for filename saving
         - pre_bands_fpath: Path to the pre-bands file
         - post_bands_fpath: Path to the post-bands file
         - output_dir: Location where to save the results
         - masking: bool param to determine whether to mask to 0 pixels that are not vegetation, using dNBR
             or not to do it (as these will be later discarded)
-        - thresh: list param of threshold values to determine the division into classes of th efinal map
         - ndvi_thresh: float param for NDVI threshold to mask non-vegetation areas (default: 0.2)
 
     Returns:
@@ -57,21 +57,27 @@ def extract_data_labels(pre_bands_fpath, post_bands_fpath, output_dir: str, mask
         
     # get final dnbr image
     dnbr_img = nbr_imgs[0] - nbr_imgs[1]
-    
+
+    # apply sigmoid function to get probabilitistic output 
+    # (the sigmoid needs to be scaled to return the desired outputs for the ranges of dNBR)
+    # the range of values are taken from UN-SPIDER guidelines (https://un-spider.org/advisory-support/recommended-practices/recommended-practice-burn-severity/in-detail/normalized-burn-ratio)
+    # the approximate range of typical values is from -0.5 to 1, with medium risk at approx. 0.3/0.4
+    shift = 0.35
+    slope = 15
+    #-----SIGMOID-----
+    dnbr_heatmap = 1 / (1+np.exp(-slope*(dnbr_img - shift)))
+
     # apply masking: we don't care about pixel values with no significant change in NBR between pre- and post-
     if masking:
-        # assign class 0 -> NO/LOW RISK, 1 -> MODERATE RISK, 2 -> HIGH RISK
-        dnbr_map = np.where(dnbr_img < thresh[0], 0, np.where(dnbr_img < thresh[1], 1, 2))
-        
         # apply NDVI-based vegetation masking: set non-vegetation pixels to class 0
-        dnbr_map = np.where(vegetation_mask, dnbr_map, 0)
+        dnbr_heatmap[~vegetation_mask] = 0
 
     # add final channel dimension for later steps
-    dnbr_map = dnbr_map[..., np.newaxis]
+    dnbr_heatmap = dnbr_heatmap[..., np.newaxis]
 
     # save this data as numpy file
     os.makedirs(output_dir, exist_ok=True)
-    np.save(os.path.join(output_dir, 'dnbr_normalized.npy'), dnbr_map)
+    np.save(os.path.join(output_dir, f'{dataset_name}_dnbr_heatmap.npy'), dnbr_heatmap)
 
     print("Data saved successfully!")
     print(f"File saved in '{output_dir}' directory.")
@@ -80,7 +86,7 @@ def extract_data_labels(pre_bands_fpath, post_bands_fpath, output_dir: str, mask
     del pre_bands, post_bands
 
     # return path (for later tiling of labeled map, too)
-    return os.path.join(output_dir, 'dnbr_normalized.npy')
+    return os.path.join(output_dir, f'{dataset_name}_dnbr_heatmap.npy')
 
 #--------------------------------------------------------------------------------
 
