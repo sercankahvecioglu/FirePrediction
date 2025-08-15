@@ -24,3 +24,15 @@ data_pipeline/utils/.env
 data_pipeline/utils/temperature_extraction_output/~$temperature_extraction_summary_20250811_141637.xlsx
 client/node_modules/
 client/node_modules/*
+results/4b91ed38-bfc6-4ca4-bb39-76b45b620695_heatmap.png
+results/5bb87845-ea98-4b4f-b155-75a95bde7281_cloud.png
+results/5bb87845-ea98-4b4f-b155-75a95bde7281_rgb.png
+results/8c14c67b-83be-4161-a8d5-5a3a450f66fa_forest.png
+results/14be18d8-5226-47f7-9476-9154a7b15f40_forest.png
+results/826b1bb3-edf9-4b0b-85d4-95c26915d118_cloud.png
+results/826b1bb3-edf9-4b0b-85d4-95c26915d118_rgb.png
+results/886ecc98-c6c0-488e-8389-c829e67b8044_forest.png
+results/a7dff035-8983-4d34-aece-97f8ce192817_cloud.png
+results/a7dff035-8983-4d34-aece-97f8ce192817_rgb.png
+results/a61bee87-b045-4f18-a155-d8c96f6c4be0_heatmap.png
+results/ed937531-3bf9-428f-bdae-273eca80eafa_heatmap.png
