@@ -67,12 +67,13 @@ class UNet(nn.Module):
         dec1 = self.decoder1(dec1)
         
         logits = self.conv(dec1)
+
         output = self.sigmoid(logits)
         
         return output
 
     @staticmethod
-    def _block(in_channels, features, name):
+    def _block(in_channels, features, name, dropout_rate=0.2):
         return nn.Sequential(
             OrderedDict(
                 [
@@ -88,6 +89,7 @@ class UNet(nn.Module):
                     ),
                     (name + "norm1", nn.BatchNorm2d(num_features=features)),
                     (name + "relu1", nn.ReLU(inplace=True)),
+                    (name + "dropout1", nn.Dropout2d(dropout_rate)),
                     (
                         name + "conv2",
                         nn.Conv2d(

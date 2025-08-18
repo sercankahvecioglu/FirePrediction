@@ -1,5 +1,6 @@
 import os
 import sys
+import argparse
 
 # Add server directory to the path to access forest_detection and cloud_detection modules
 sys.path.append(
@@ -10,6 +11,7 @@ sys.path.append(
 from bands_preprocessing import *
 from utils.forest_detection.veg_model_eval import ndvi_veg_detector
 from utils.cloud_detection import is_cloudy
+from data_augmentation import data_augmentation
 
 import time
 from shutil import copy2
@@ -106,13 +108,26 @@ class TrainDataProcessor(BaseProcessor):
             base_path (str): Base directory path where data folders are located
             patch_size (tuple): Size of tiles to extract (height, width)
             cloud_threshold (float): Cloudy pixels % threshold for tiles discarding (0.0-1.0)
+            apply_augmentation (bool): Whether to apply data augmentation before NDVI/NDMI extraction
+            augmentation_config (dict): Configuration for data augmentation parameters
     """
     
     def __init__(self, dataset_name: str, 
                         base_path: str = '/home/dario/Desktop/FirePrediction',
                         patch_size: tuple = (256, 256),
-                        cloud_threshold: float = 0.5):
+                        cloud_threshold: float = 0.5,
+                        apply_augmentation: bool = True,
+                        augmentation_config: dict = None):
         super().__init__(dataset_name, base_path, patch_size, cloud_threshold)
+        self.apply_augmentation = apply_augmentation
+        self.augmentation_config = augmentation_config or {
+            'apply_rotations': True,
+            'apply_flips': True,
+            'apply_noise': True,
+            'noise_factor': 0.05,
+            'augmentation_probability': 0.5,
+            'seed': 42
+        }
     
     def _setup_directories(self):
         """Setup directories including labels path for training"""
@@ -141,6 +156,42 @@ class TrainDataProcessor(BaseProcessor):
         dt = time.time() - init_time
         print(f"✓ label tiles extracted to {self.tiles_labels_path} in {dt:.1f} seconds")
     
+    def _apply_data_augmentation(self):
+        """Apply data augmentation to clean tiles before NDVI/NDMI extraction"""
+        if not self.apply_augmentation:
+            print("⏭️  Data augmentation skipped (disabled)")
+            return {'status': 'skipped'}
+            
+        print("\n--- Step 4.5: Applying data augmentation to clean tiles ---")
+        init_time = time.time()
+        
+        # Count existing files before augmentation
+        data_files = [f for f in os.listdir(self.tiles_input_path) if f.endswith('.npy')]
+        label_files = [f for f in os.listdir(self.tiles_labels_path) if f.endswith('.npy')]
+        
+        if not data_files:
+            print("⚠️  No data files to augment")
+            return {'status': 'no_files'}
+        
+        try:
+            # Apply data augmentation
+            result = data_augmentation(
+                data_folder=self.tiles_input_path,
+                labels_folder=self.tiles_labels_path,
+                augmentation_config=self.augmentation_config
+            )
+            
+            dt = time.time() - init_time
+            print(f"✓ Data augmentation completed in {dt:.1f} seconds")
+            print(f"  Original files: {result.get('original_files', 0)}")
+            print(f"  Augmented samples generated: {result.get('augmented_count', 0)}")
+            
+            return result
+            
+        except Exception as e:
+            print(f"❌ Error during data augmentation: {str(e)}")
+            return {'status': 'error', 'message': str(e)}
+    
     def run(self):
         pipeline_start = time.time()
         print(f"=== Starting processing pipeline for dataset: {self.dataset_name} ===")
@@ -152,6 +203,7 @@ class TrainDataProcessor(BaseProcessor):
         self._extract_label_tiles()
         cloud_results = self._apply_cloud_detection()
         vegetation_results = self._apply_vegetation_detection()
+        augmentation_results = self._apply_data_augmentation()
         self._extract_indices()
         
         pipeline_duration = time.time() - pipeline_start
@@ -168,7 +220,8 @@ class TrainDataProcessor(BaseProcessor):
             'label_tiles': self.tiles_labels_path,
             'full_img_results': self.full_labels_path,
             'cloud_results': cloud_results,
-            'vegetation_results': vegetation_results
+            'vegetation_results': vegetation_results,
+            'augmentation_results': augmentation_results
         }
 
 
@@ -216,7 +269,64 @@ class SatelliteProcessor(BaseProcessor):
         }
 
 
+def main():
+    """Main function to handle command line arguments and run the processing pipeline"""
+    parser = argparse.ArgumentParser(description='Process satellite data for fire prediction')
+    parser.add_argument('dataset_name', 
+                       help='Name of the dataset to process (e.g., usa2, turkey, california, etc.)')
+    parser.add_argument('--processor', '-p', 
+                       choices=['train', 'satellite'], 
+                       default='train',
+                       help='Type of processor to use: train (full pipeline with labels) or satellite (no labels)')
+    parser.add_argument('--cloud-threshold', '-c',
+                       type=float,
+                       default=0.5,
+                       help='Cloudy pixels percentage threshold for tile discarding (0.0-1.0)')
+    parser.add_argument('--patch-size',
+                       type=int,
+                       nargs=2,
+                       default=[256, 256],
+                       metavar=('HEIGHT', 'WIDTH'),
+                       help='Size of tiles to extract (height width)')
+    parser.add_argument('--no-augmentation',
+                       action='store_true',
+                       help='Disable data augmentation (only for train processor)')
+    parser.add_argument('--base-path',
+                       default='/home/dario/Desktop/FirePrediction',
+                       help='Base directory path where data folders are located')
+    
+    args = parser.parse_args()
+    
+    # Convert patch size to tuple
+    patch_size = tuple(args.patch_size)
+    
+    # Create processor based on type
+    if args.processor == 'train':
+        processor = TrainDataProcessor(
+            dataset_name=args.dataset_name,
+            base_path=args.base_path,
+            patch_size=patch_size,
+            cloud_threshold=args.cloud_threshold,
+            apply_augmentation=not args.no_augmentation
+        )
+    else:  # satellite
+        processor = SatelliteProcessor(
+            dataset_name=args.dataset_name,
+            base_path=args.base_path,
+            patch_size=patch_size,
+            cloud_threshold=args.cloud_threshold
+        )
+    
+    # Run the processing pipeline
+    try:
+        results = processor.run()
+        print(f"\n✅ Processing completed successfully for dataset: {args.dataset_name}")
+        return results
+    except Exception as e:
+        print(f"\n❌ Error processing dataset {args.dataset_name}: {str(e)}")
+        sys.exit(1)
+
+
 # brief running check to see if the code works correctly
 if __name__ == '__main__':
-    train_proc = TrainDataProcessor('usa2')
-    train_proc.run()
+    main()

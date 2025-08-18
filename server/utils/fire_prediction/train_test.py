@@ -5,6 +5,7 @@ import numpy as np
 from tqdm import tqdm
 import os   
 from datasets import *
+from tile_aware_split import create_tile_aware_split
 
 def init_final_bias(model, target_prob=0.7):
     """
@@ -38,13 +39,13 @@ def calculate_r2(predictions, targets):
     return r2.item()
 
 # main train loop
-def train_model(model, train_loader, val_loader, criterion, optimizer, device, epochs=10):
+def train_model(model, train_loader, val_loader, criterion, optimizer, device, start_epoch=0, epochs=10):
     model.to(device)
     best_val_loss = float('inf')
 
     not_improved_epochs = 0
 
-    for epoch in range(epochs):
+    for epoch in range(start_epoch, start_epoch+epochs):
 
         # put model in training mode (needed for batch normalization)
         model.train()
@@ -52,7 +53,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
         all_preds = []
         all_labels = []
 
-        for x, y in tqdm(train_loader, desc=f"Epoch {epoch+1}/{epochs} (Train)"):
+        for x, y in tqdm(train_loader, desc=f"Epoch {epoch+1}/{start_epoch+epochs} (Train)"):
             x, y = x.to(device), y.to(device).float()  # Keep as float for regression
 
             optimizer.zero_grad()
@@ -70,6 +71,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
             train_loss += loss.item()
 
             outputs = outputs.cpu().detach()
+
             all_preds.append(outputs)
             all_labels.append(y.cpu())
 
@@ -92,7 +94,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
 
         # no update of parameters
         with torch.no_grad():
-            for x, y in tqdm(val_loader, desc=f"Epoch {epoch+1}/{epochs} (Val)"):
+            for x, y in tqdm(val_loader, desc=f"Epoch {epoch+1}/{start_epoch+epochs} (Val)"):
                 x, y = x.to(device), y.to(device).float()  # Keep as float for regression
 
                 outputs = model(x)
@@ -120,6 +122,17 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
         print(f"  Train Loss: {train_loss:.6f} | MAE: {train_mae:.6f} | RMSE: {train_rmse:.6f} | R²: {train_r2:.6f}")
         print(f"  Val Loss: {val_loss:.6f}   | MAE: {val_mae:.6f} | RMSE: {val_rmse:.6f}   | R²: {val_r2:.6f}\n")
 
+        if (epoch+1) % 5 == 0 or epoch == epochs - 1:  # Every 5 epochs + final epoch save checkpoint
+            torch.save({
+            'epoch': epoch+1,
+            'model_state_dict': model.state_dict(),
+            'optimizer_state_dict': optimizer.state_dict(),
+            'best_val_loss': best_val_loss,
+            'train_loss': train_loss,
+            'val_loss': val_loss
+        }, f'../trained_models/checkpoint_epoch_{epoch+1}.pth')
+            print(f"Checkpoint saved at epoch {epoch+1}\n")                                                 
+
         # saving best model at each epoch, if val loss improves
         if val_loss < best_val_loss:
             not_improved_epochs = 0
@@ -132,7 +145,7 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
             print(f"  --> Saved best model (val_loss improved)\n")
         else: 
             not_improved_epochs += 1
-            if not_improved_epochs == 5:
+            if not_improved_epochs == 10:
                 print(f"Model training stopped early due to no improvement for {not_improved_epochs} epochs.\n")
                 return model
 
@@ -192,36 +205,63 @@ train_dataset = TrainingDataset("/home/dario/Desktop/FirePrediction/inputs",
 test_dataset = TestingDataset("/home/dario/Desktop/FirePrediction/TEST_INPUT_DATA",
                             "/home/dario/Desktop/FirePrediction/TEST_LABELS")
 
-# --- train-val split ---
-val_ratio = 0.2  # 80/20 split
-train_len = int((1 - val_ratio) * len(train_dataset))
-val_len = len(train_dataset) - train_len
-train_subset, val_subset = random_split(train_dataset, [train_len, val_len], generator=torch.Generator().manual_seed(33))
+print(f"Loaded training dataset with {len(train_dataset)} samples")
 
-train_loader = DataLoader(train_subset, batch_size=16, shuffle=True)
-val_loader = DataLoader(val_subset, batch_size=16, shuffle=False)
+# --- train-val split ---
+# Use tile-aware split to prevent data leakage from augmented tiles
+# This ensures that augmented versions of the same tile don't appear in both train and validation sets
+print("Creating tile-aware train-validation split...")
+train_subset, val_subset = create_tile_aware_split(train_dataset, val_ratio=0.2, seed=33)
+
+train_loader = DataLoader(train_subset, batch_size=8, shuffle=True)
+val_loader = DataLoader(val_subset, batch_size=8, shuffle=False)
 
 n_channels = len(test_dataset.band_indices)
 test_filenames = test_dataset.input_list
-test_loader = DataLoader(test_dataset, batch_size=16, shuffle=False)
+test_loader = DataLoader(test_dataset, batch_size=8, shuffle=False)
 
 # architecture definition (setting n channels as following input data bands channels)
 unet_model = UNet(n_channels, out_channels=1).to('cuda')
-init_final_bias(unet_model, target_prob=0.7) 
+#init_final_bias(unet_model, target_prob=0.7) 
 
 
-# optimizer & loss definition
 optimizer = torch.optim.Adam(unet_model.parameters(), lr=0.001)  
+
+start_epoch = 0
+
+
+
+# load and resume training from checkpoints
+checkpoint = torch.load('../trained_models/checkpoint_epoch_15.pth')
+unet_model.load_state_dict(checkpoint['model_state_dict'])
+optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+start_epoch = checkpoint['epoch'] 
+loss = checkpoint['train_loss']
+
+
 scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
     optimizer, mode='min', factor=0.5, patience=5
 )
 
-# Use MSE loss for regression
-criterion = torch.nn.MSELoss()
-
+# optimizer & loss definition
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 
-trained_model = train_model(unet_model, train_loader, val_loader, criterion, optimizer, device, 25)
+class WeightedMSELoss(torch.nn.Module):
+    def __init__(self, high_risk_weight=3.0, threshold=0.5):
+        super().__init__()
+        self.high_risk_weight = high_risk_weight
+        self.threshold = threshold
+        
+    def forward(self, pred, target):
+        mse = torch.nn.functional.mse_loss(pred, target, reduction='none')
+        weights = torch.where(target > self.threshold, 
+                            self.high_risk_weight, 1.0)
+        return (weights * mse).mean()
+
+# Use MSE loss for regression
+criterion = WeightedMSELoss()
+
+trained_model = train_model(unet_model, train_loader, val_loader, criterion, optimizer, device, start_epoch, 25)
 
 #-----------------------------------------------------------------
 

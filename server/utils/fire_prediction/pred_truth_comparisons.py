@@ -46,13 +46,13 @@ def create_prediction_comparison_plots(labels_dir="/home/dario/Desktop/FirePredi
             fig, (ax1, ax2, ax3) = plt.subplots(1, 3, figsize=(18, 5))
             
             # Plot ground truth with grayscale for continuous values
-            im1 = ax1.imshow(label_array, cmap='gray', vmin=0, vmax=1)
+            im1 = ax1.imshow(label_array, cmap='coolwarm', vmin=0, vmax=1)
             ax1.set_title('Ground Truth')
             ax1.axis('off')
             plt.colorbar(im1, ax=ax1, shrink=0.8)
             
             # Plot prediction with grayscale for continuous values
-            im2 = ax2.imshow(pred_array, cmap='gray', vmin=0, vmax=1)
+            im2 = ax2.imshow(pred_array, cmap='coolwarm', vmin=0, vmax=1)
             ax2.set_title('Prediction')
             ax2.axis('off')
             plt.colorbar(im2, ax=ax2, shrink=0.8)
