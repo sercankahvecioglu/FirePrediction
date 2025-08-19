@@ -2,34 +2,99 @@ import os
 import numpy as np
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from pathlib import Path
 import glob
+import matplotlib.pyplot as plt
+import torch.nn as nn
 
 
-
-# simple CNN arhcitecture for vegetation detection task
-# produces 1 (after sigmoid & argmax) if forest, 0 otherwise
 class SimpleCNN(nn.Module):
-    def __init__(self, in_channels):
-        super().__init__()
+    def __init__(self, in_channels=4):
+        super(SimpleCNN, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
-        self.pool = nn.MaxPool2d(2,2)
-        # use adaptive pooling so FC receives fixed-size features regardless of input size
-        self.adapt = nn.AdaptiveAvgPool2d((4,4))  # outputs [B, 64, 4, 4]
-        self.fc1 = nn.Linear(64 * 4 * 4, 128)
-        self.fc2 = nn.Linear(128, 1)  # logits
+        self.pool = nn.MaxPool2d(2, 2)
+        self.fc1 = nn.Linear(64 * 16 * 16, 128)  # assuming 64x64 patches
+        self.fc2 = nn.Linear(128, 1)
 
     def forward(self, x):
-        x = self.pool(torch.relu(self.conv1(x)))
-        x = self.pool(torch.relu(self.conv2(x)))
-        x = self.adapt(x)
-        x = x.view(x.size(0), -1)
-        x = torch.relu(self.fc1(x))
-        return self.fc2(x)  # raw logits (no sigmoid)
+        x = self.pool(F.relu(self.conv1(x)))  # [B, 32, 32, 32]
+        x = self.pool(F.relu(self.conv2(x)))  # [B, 64, 16, 16]
+        x = x.view(x.size(0), -1)             # flatten
+        x = F.relu(self.fc1(x))
+        return self.fc2(x)  # return logits (no sigmoid)
     
+def predict(model, image_path):
+    # Detect file type
+    if image_path.endswith('.npy'):
+        array = np.load(image_path)  # shape: [H, W, 15]
+        red = array[:, :, 3] / 10000.0
+        green = array[:, :, 2] / 10000.0
+        blue = array[:, :, 1] / 10000.0
+        ndvi = array[:, :, 13]
 
+        # Stack to [4, H, W]
+        stacked = np.stack([red, green, blue, ndvi], axis=0)
+    elif image_path.endswith('.png') or image_path.endswith('.jpg'):
+        img = Image.open(image_path).convert('RGB')
+        img = img.resize((64, 64))  # Resize for consistency
+        img = np.array(img).astype(np.float32) / 255.0
 
+        red = img[:, :, 0]
+        green = img[:, :, 1]
+        blue = img[:, :, 2]
+        ndvi = np.zeros_like(red)
+
+        # Stack to [4, 64, 64]
+        stacked = np.stack([red, green, blue, ndvi], axis=0)
+
+    elif image_path.endswith('.tif') or image_path.endswith('.tiff'):
+        import rasterio
+        with rasterio.open(image_path) as src:
+        # Read bands using Sentinel-2 standard band numbers:
+        # Band 4 = red (index 4)
+        # Band 3 = green (index 3)
+        # Band 2 = blue (index 2)
+        # Band 8 = NIR (index 8)
+         red = src.read(4).astype(np.float32) / 10000.0
+         green = src.read(3).astype(np.float32) / 10000.0
+         blue = src.read(2).astype(np.float32) / 10000.0
+         nir = src.read(8).astype(np.float32) / 10000.0
+
+        # Compute NDVI
+         ndvi = (nir - red) / (nir + red + 1e-5)
+
+        # Stack to [4, H, W]
+         stacked = np.stack([red, green, blue, ndvi], axis=0)
+    else:
+        raise ValueError("Unsupported file format. Use .npy or .png/.jpg")
+
+    # Resize if needed (for .npy)
+    if stacked.shape[1:] != (64, 64):
+        tensor = torch.tensor(stacked, dtype=torch.float32).unsqueeze(0)  # [1, 4, H, W]
+        tensor = F.interpolate(tensor, size=(64, 64), mode='bilinear', align_corners=False)
+    else:
+        tensor = torch.tensor(stacked, dtype=torch.float32).unsqueeze(0)
+
+    # Predict
+    model.eval()
+    device = next(model.parameters()).device
+    with torch.no_grad():
+        logit = model(tensor.to(device))
+        prob = torch.sigmoid(logit).item()
+        label = "VEGETATION" if prob > 0.4 else "NO_VEGETATION"
+   
+   # visualize = true 
+
+    rgb_vis = np.stack([red, green, blue], axis=-1)
+    rgb_vis = np.clip(rgb_vis, 0, 1)
+    plt.figure(figsize=(4, 4))
+    plt.imshow(rgb_vis)
+    plt.title(f"Prediction: {label}", fontsize=14, color='green' if label == "VEGETATION" else 'red')
+    plt.axis('off')
+    plt.show()
+    
 def ndvi_veg_detector(input_folder, ndvi_threshold=0.3, min_veg_percentage=15.0):
     """
     Filter .npy files using NDVI threshold for vegetation detection
@@ -64,31 +129,30 @@ def ndvi_veg_detector(input_folder, ndvi_threshold=0.3, min_veg_percentage=15.0)
             # Keep if enough vegetation percentage
             if veg_percentage >= min_veg_percentage:
                 kept_files.append(npy_file)
+                label = "VEGETATION"
             else:
-                # Remove input tile
-                os.remove(npy_file)
-                # Also remove corresponding label tile
-                label_fname = os.path.join(os.path.dirname(input_folder), 'TILES_LABELS', os.path.basename(npy_file))
-                if os.path.exists(label_fname):
-                    os.remove(label_fname)
                 removed_files.append(npy_file)
+                label = "NO_VEGETATION"
                 
         except Exception as e:
             print(f"Error processing {npy_file}: {e}")
             # Remove input tile even on error
-            if os.path.exists(npy_file):
-                os.remove(npy_file)
-                # Also remove corresponding label tile
-                label_fname = os.path.join(os.path.dirname(input_folder), 'TILES_LABELS', os.path.basename(npy_file))
-                if os.path.exists(label_fname):
-                    os.remove(label_fname)
-            removed_files.append(npy_file)
-    
+
+        red = image_data[:, :, 3] / 10000.0
+        green = image_data[:, :, 2] / 10000.0
+        blue = image_data[:, :, 1] / 10000.0
+        ndvi = image_data[:, :, 13]
+        rgb_vis = np.stack([red, green, blue], axis=-1)
+        rgb_vis = np.clip(rgb_vis, 0, 1)
+        plt.figure(figsize=(4, 4))
+        plt.imshow(rgb_vis)
+        plt.title(f"Prediction: {label}", fontsize=14, color='green' if label == "VEGETATION" else 'red')
+        plt.axis('off')
+        plt.show()
+        
     return kept_files, removed_files
 
-
-
-def veg_detector(input_folder, model_weights_path=None):
+def veg_detector(input_folder):
     """
     Filter .npy files to keep only forest images (prediction = 1)
     
@@ -96,66 +160,24 @@ def veg_detector(input_folder, model_weights_path=None):
         input_folder (str): Path to folder containing .npy files
         model_weights_path (str): Path to model weights (default: trained_models/vegcnn_weights.pth)
     """
-    if model_weights_path is None:
-        model_weights_path = "/home/dario/Desktop/FirePrediction/trained_models/vegcnn_weights.pth"
-    
-    # Load model
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    model = SimpleCNN(in_channels=14)
-    model.load_state_dict(torch.load(model_weights_path, map_location=device))
+    model_weights_path = "/Users/sercankahvecioglu/Desktop/sc25/FlameSentinels/code/final_demo/FirePrediction/server/utils/trained_models/WeightsProbe.pth"
+
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+
+    model = SimpleCNN()  # or whatever your model class is
+    state_dict = torch.load(model_weights_path, map_location=device)
+    model.load_state_dict(state_dict)
     model.to(device)
     model.eval()
-    
-    # Get all .npy files
-    npy_files = glob.glob(os.path.join(input_folder, "*.npy"))
-    
-    kept_files = []
-    removed_files = []
-    
-    with torch.no_grad():
-        for npy_file in npy_files:
-            try:
-                # Load image data
-                image_data = np.load(npy_file)
-                
-                # Ensure correct shape and data type
-                if len(image_data.shape) == 3:
-                    image_data = np.expand_dims(image_data, axis=0)  # Add batch dimension
-                
-                # Convert to tensor and normalize if needed
-                image_tensor = torch.FloatTensor(image_data).to(device)
-                
-                # Run inference
-                outputs = model(image_tensor)
-                # Apply sigmoid and threshold for binary classification
-                probabilities = torch.sigmoid(outputs)
-                predicted = (probabilities > 0.5).long()
-                
-                # Keep file if prediction is 1 (forest), otherwise remove
-                if predicted.item() == 1:
-                    kept_files.append(npy_file)
-                else:
-                    # Remove input tile
-                    os.remove(npy_file)
-                    # Also remove corresponding label tile
-                    label_fname = os.path.join(os.path.dirname(input_folder), 'TILES_LABELS', os.path.basename(npy_file))
-                    if os.path.exists(label_fname):
-                        os.remove(label_fname)
-                    removed_files.append(npy_file)
-                    
-            except Exception as e:
-                print(f"Error processing {npy_file}: {e}")
-                # Remove input tile even on error
-                if os.path.exists(npy_file):
-                    os.remove(npy_file)
-                    # Also remove corresponding label tile
-                    label_fname = os.path.join(os.path.dirname(input_folder), 'TILES_LABELS', os.path.basename(npy_file))
-                    if os.path.exists(label_fname):
-                        os.remove(label_fname)
-                removed_files.append(npy_file)
-    
-    print(f"Processed {len(npy_files)} files")
-    print(f"Kept {len(kept_files)} forest images")
-    print(f"Removed {len(removed_files)} non-forest images")
-    
-    return kept_files, removed_files
+    for file in glob.glob(os.path.join(input_folder, "*.npy")):
+        print(f"Processing file: {file}")
+        # Predict using the model
+        result = predict(model, file)
+        print(result)
+
+if __name__ == "__main__":
+    # Example usage
+    input_folder = "/Users/sercankahvecioglu/Desktop/sc25/FlameSentinels/code/final_demo/FirePrediction/server/utils/forest_detection/sample_veg_detection_data/NO_VEGETATION/"
+    kept, removed = veg_detector(input_folder)
+    print("Kept files:", kept)
+    print("Removed files:", removed)

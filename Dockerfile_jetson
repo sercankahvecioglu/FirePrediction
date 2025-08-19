@@ -1,0 +1,37 @@
+# Jetson AGX Orin • L4T 36.4.x (JetPack 6.1/6.2)
+FROM nvcr.io/nvidia/l4t-jetpack:r36.4.0
+
+# Use system Python3 + pip
+ARG DEBIAN_FRONTEND=noninteractive
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    python3-pip python3-dev \
+    build-essential cmake git libopenmpi-dev libgomp1 \
+ && rm -rf /var/lib/apt/lists/*
+
+# (Optional) Jetson PyTorch wheels index (community, maintained with jetson-containers)
+# Comment this out if you vendor your own wheels
+ARG PIP_EXTRA_INDEX_URL=https://pypi.jetson-ai-lab.io
+ENV PIP_EXTRA_INDEX_URL=${PIP_EXTRA_INDEX_URL}
+
+RUN python3 -m pip install --upgrade pip
+
+# Install PyTorch + friends for Jetson (CUDA-enabled wheels)
+# Remove torch/torchvision/torchaudio from requirements.txt to avoid CPU-only wheels from PyPI
+RUN pip3 install --no-cache-dir torch torchvision torchaudio
+
+# Build LightGBM with CUDA support (uses CUDA 12.6 from JetPack in this image)
+RUN git clone --depth 1 https://github.com/microsoft/LightGBM.git /tmp/LightGBM && \
+    cd /tmp/LightGBM && \
+    bash ./build-python.sh install --cuda && \
+    rm -rf /tmp/LightGBM
+
+# Your app
+WORKDIR /app
+COPY requirements.txt ./
+RUN ls -la /app && python3 -V && pip3 -V && \
+    pip3 install --no-cache-dir -r requirements.txt
+
+COPY . .
+
+EXPOSE 5000
+CMD ["uvicorn", "app:app", "--host", "0.0.0.0", "--port", "5000"]
