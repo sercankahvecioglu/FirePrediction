@@ -60,13 +60,19 @@ def predict_fire(data: np.ndarray):
     print("Checking input dimensions...")
     if input_data.shape[0] != 256 or input_data.shape[1] != 256:
         raise ValueError(f"Input must be 256x256, got {input_data.shape[:2]}")
-    
+
     # 3. Convert to tensor (1,5,256,256)
     print("Converting to tensor...")
     tensor_input = torch.tensor(input_data, dtype=torch.float32).permute(2,0,1).unsqueeze(0)
     if torch.cuda.is_available():
         tensor_input = tensor_input.cuda()
-    
+
+    # 3.5 Normalize input data
+    for i in range(tensor_input.shape[1]):
+       band = tensor_input[0, i]
+       min_val, max_val = band.min(), band.max()
+       tensor_input[0, i] = (band - min_val) / (max_val - min_val) if max_val > min_val else torch.zeros_like(band)
+
     # 4. Inference
     print("Running inference...")
     with torch.no_grad():

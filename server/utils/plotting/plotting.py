@@ -111,7 +111,7 @@ def create_cloud_mask_visualization(output_folder, metadata_path, job_id=None):
 
             tile = np.load(tile_path)
 
-            if perc_cloud > 0.4:
+            if is_cloudy:
                 # RED tile
                 rgb_tile = np.zeros_like(tile[:,:,:3])  # Create a red tile
                 #rgb_tile[..., 0] = 255  # Set red channel to 255
@@ -164,7 +164,6 @@ def create_cloud_mask_visualization(output_folder, metadata_path, job_id=None):
         return False
 
     return True
-
 
 def create_forest_picture(output_folder, metadata_path, job_id=None, cloud_job_id=None):
     """
@@ -321,7 +320,7 @@ def create_heatmap(output_folder, metadata_path, job_id=None):
 
         # Create and display heatmap
         fig, ax = plt.subplots(figsize=(10, 10))
-        im = ax.imshow(full_fire_prob, cmap="hot", interpolation="nearest", vmin=0, vmax=1)
+        im = ax.imshow(full_fire_prob, cmap="coolwarm", interpolation="nearest", vmin=0, vmax=1)
         ax.set_title(f"Fire Probability Heatmap - {job_id}")
         ax.axis("off")
         

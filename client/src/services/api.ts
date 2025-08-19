@@ -1,45 +1,13 @@
 // Types based on the backend API response models
-export interface JobResponse {
-  job_id: string;
-  status: string;
-  message: string;
-}
+import type { 
+  JobResponse, 
+  JobStatus, 
+  ProcessedImageResponse, 
+  PredictResponse,
+  ProgressCallback
+} from '@/types/api';
 
-export interface JobStatus {
-  job_id: string;
-  task: string;
-  status: 'pending' | 'processing' | 'completed' | 'failed';
-  created_at: string;
-  completed_at?: string;
-  tiles_to_process: number;
-  tiles_processed: number;
-  successful_tiles: number;
-  progress: number;
-  message: string;
-}
-
-export interface ProcessedImageResponse {
-  job_id: string;
-  task: string;
-  rgb_image_url: string;
-  cloud_image_url: string;
-  forest_image_url: string;
-  heatmap_image_url: string;
-  metadata: any;
-}
-
-export interface PredictResponse {
-  job_id: string;
-  status: 'success' | 'error';
-  image_urls: {
-    rgb: string;
-    cloud: string;
-    forest: string;
-    fire: string;
-  };
-}
-
-const API_BASE_URL = '/api';
+const API_BASE_URL = 'http://localhost:5001';
 
 // Submit image for cloud detection processing
 async function submitImageForCloudDetection(file: File, tileSize: number = 256): Promise<JobResponse> {
@@ -60,40 +28,44 @@ async function submitImageForCloudDetection(file: File, tileSize: number = 256):
   return response.json();
 }
 
-// Submit image for forest detection processing
-async function submitImageForForestDetection(file: File): Promise<JobResponse> {
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const response = await fetch(`${API_BASE_URL}/submit-image/forest-detection`, {
+// Submit for forest detection using cloud job ID (sequential pipeline)
+async function submitForestDetection(cloudJobId: string): Promise<JobResponse> {
+  const response = await fetch(`${API_BASE_URL}/submit-image/forest-detection?cloud_job_id=${cloudJobId}`, {
     method: 'POST',
-    body: formData,
   });
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Failed to submit image for forest detection');
+    throw new Error(errorData.detail || 'Failed to submit forest detection');
   }
 
   return response.json();
 }
 
-// Submit image for fire prediction processing
-async function submitImageForFirePrediction(file: File): Promise<JobResponse> {
-  const formData = new FormData();
-  formData.append('file', file);
-
-  const response = await fetch(`${API_BASE_URL}/submit-image/fire-prediction`, {
+// Submit for fire prediction using cloud job ID (sequential pipeline)
+async function submitFirePrediction(cloudJobId: string): Promise<JobResponse> {
+  const response = await fetch(`${API_BASE_URL}/submit-image/fire-prediction?cloud_job_id=${cloudJobId}`, {
     method: 'POST',
-    body: formData,
   });
 
   if (!response.ok) {
     const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.detail || 'Failed to submit image for fire prediction');
+    throw new Error(errorData.detail || 'Failed to submit fire prediction');
   }
 
   return response.json();
+}
+
+// Download image by name
+async function downloadImage(imageName: string): Promise<string> {
+  const response = await fetch(`${API_BASE_URL}/download-picture/${imageName}`);
+  
+  if (!response.ok) {
+    throw new Error(`Failed to download image: ${imageName}`);
+  }
+
+  const blob = await response.blob();
+  return URL.createObjectURL(blob);
 }
 
 // Mock endpoints for testing without real files
@@ -162,40 +134,71 @@ async function pollJobStatus(jobId: string, onProgress?: (status: JobStatus) => 
   });
 }
 
-// Main function that handles the complete flow
+// Main function that handles the complete sequential pipeline
 export async function predict(
   file: File, 
-  onProgress?: (progress: number, message: string) => void
+  onProgress?: ProgressCallback
 ): Promise<PredictResponse> {
   try {
     // Step 1: Submit image for cloud detection
-    onProgress?.(10, 'Submitting image for processing...');
-    const jobResponse = await submitImageForCloudDetection(file);
+    onProgress?.(5, 'Submitting image for cloud detection...');
+    const cloudJobResponse = await submitImageForCloudDetection(file);
     
-    // Step 2: Poll for completion with progress updates
-    onProgress?.(20, 'Processing started, waiting for completion...');
-    
-    await pollJobStatus(jobResponse.job_id, (status) => {
-      // Map backend progress (0-100) to our progress range (20-90)
-      const mappedProgress = 20 + Math.floor((status.progress / 100) * 70);
-      onProgress?.(mappedProgress, status.message);
+    // Step 2: Wait for cloud detection to complete
+    onProgress?.(10, 'Processing cloud detection...');
+    await pollJobStatus(cloudJobResponse.job_id, (status) => {
+      // Map progress to 10-35% range for cloud detection
+      const mappedProgress = 10 + Math.floor((status.progress / 100) * 25);
+      onProgress?.(mappedProgress, `Cloud detection: ${status.message}`);
     });
 
-    // Step 3: Get the final result
+    // Step 3: Submit for forest detection using cloud job ID
+    onProgress?.(35, 'Starting forest detection...');
+    const forestJobResponse = await submitForestDetection(cloudJobResponse.job_id);
+    
+    // Step 4: Wait for forest detection to complete
+    onProgress?.(40, 'Processing forest detection...');
+    await pollJobStatus(forestJobResponse.job_id, (status) => {
+      // Map progress to 40-65% range for forest detection
+      const mappedProgress = 40 + Math.floor((status.progress / 100) * 25);
+      onProgress?.(mappedProgress, `Forest detection: ${status.message}`);
+    });
+
+    // Step 5: Submit for fire prediction using cloud job ID
+    onProgress?.(65, 'Starting fire prediction...');
+    const fireJobResponse = await submitFirePrediction(cloudJobResponse.job_id);
+    
+    // Step 6: Wait for fire prediction to complete
+    onProgress?.(70, 'Processing fire prediction...');
+    await pollJobStatus(fireJobResponse.job_id, (status) => {
+      // Map progress to 70-90% range for fire prediction
+      const mappedProgress = 70 + Math.floor((status.progress / 100) * 20);
+      onProgress?.(mappedProgress, `Fire prediction: ${status.message}`);
+    });
+
+    // Step 7: Get the final result from fire prediction job
     onProgress?.(90, 'Retrieving processed images...');
-    const result = await getProcessingResult(jobResponse.job_id);
+    const result = await getProcessingResult(fireJobResponse.job_id);
+    
+    // Step 8: Download all images and create blob URLs
+    onProgress?.(95, 'Downloading images...');
+    const [rgbUrl, cloudUrl, forestUrl, fireUrl] = await Promise.all([
+      downloadImage(result.rgb_image_url),
+      downloadImage(result.cloud_image_url),
+      downloadImage(result.forest_image_url),
+      downloadImage(result.heatmap_image_url)
+    ]);
     
     onProgress?.(100, 'Processing completed successfully!');
 
-    // Convert backend response to frontend format
     return {
       job_id: result.job_id,
       status: 'success',
       image_urls: {
-        rgb: result.rgb_image_url,
-        cloud: result.cloud_image_url,
-        forest: result.forest_image_url,
-        fire: result.heatmap_image_url,
+        rgb: rgbUrl,
+        cloud: cloudUrl,
+        forest: forestUrl,
+        fire: fireUrl,
       },
     };
   } catch (error) {
@@ -207,7 +210,7 @@ export async function predict(
 // Mock function for testing without real files
 export async function predictMock(
   task: 'cloud_detection' | 'forest_detection' | 'fire_prediction' = 'cloud_detection',
-  onProgress?: (progress: number, message: string) => void
+  onProgress?: ProgressCallback
 ): Promise<PredictResponse> {
   try {
     // Step 1: Submit mock task
@@ -246,10 +249,10 @@ export async function predictMock(
   }
 }
 
-// Process specific analysis types
+// Process specific analysis types - Updated for new pipeline
 export async function predictCloudDetection(
   file: File,
-  onProgress?: (progress: number, message: string) => void
+  onProgress?: ProgressCallback
 ): Promise<PredictResponse> {
   try {
     onProgress?.(10, 'Submitting image for cloud detection...');
@@ -264,16 +267,24 @@ export async function predictCloudDetection(
     onProgress?.(90, 'Retrieving cloud detection results...');
     const result = await getProcessingResult(jobResponse.job_id);
     
+    // Download images and create blob URLs
+    const [rgbUrl, cloudUrl, forestUrl, fireUrl] = await Promise.all([
+      downloadImage(result.rgb_image_url),
+      downloadImage(result.cloud_image_url),
+      downloadImage(result.forest_image_url),
+      downloadImage(result.heatmap_image_url)
+    ]);
+    
     onProgress?.(100, 'Cloud detection completed!');
 
     return {
       job_id: result.job_id,
       status: 'success',
       image_urls: {
-        rgb: result.rgb_image_url,
-        cloud: result.cloud_image_url,
-        forest: result.forest_image_url,
-        fire: result.heatmap_image_url,
+        rgb: rgbUrl,
+        cloud: cloudUrl,
+        forest: forestUrl,
+        fire: fireUrl,
       },
     };
   } catch (error) {
@@ -284,20 +295,37 @@ export async function predictCloudDetection(
 
 export async function predictForestDetection(
   file: File,
-  onProgress?: (progress: number, message: string) => void
+  onProgress?: ProgressCallback
 ): Promise<PredictResponse> {
   try {
-    onProgress?.(10, 'Submitting image for forest detection...');
-    const jobResponse = await submitImageForForestDetection(file);
+    // First run cloud detection
+    onProgress?.(10, 'Running cloud detection first...');
+    const cloudJobResponse = await submitImageForCloudDetection(file);
     
-    onProgress?.(20, 'Forest detection started...');
+    await pollJobStatus(cloudJobResponse.job_id, (status) => {
+      const mappedProgress = 10 + Math.floor((status.progress / 100) * 30);
+      onProgress?.(mappedProgress, `Cloud detection: ${status.message}`);
+    });
+
+    onProgress?.(40, 'Submitting forest detection...');
+    const jobResponse = await submitForestDetection(cloudJobResponse.job_id);
+    
+    onProgress?.(50, 'Forest detection started...');
     await pollJobStatus(jobResponse.job_id, (status) => {
-      const mappedProgress = 20 + Math.floor((status.progress / 100) * 70);
+      const mappedProgress = 50 + Math.floor((status.progress / 100) * 40);
       onProgress?.(mappedProgress, status.message);
     });
 
     onProgress?.(90, 'Retrieving forest detection results...');
     const result = await getProcessingResult(jobResponse.job_id);
+    
+    // Download images and create blob URLs
+    const [rgbUrl, cloudUrl, forestUrl, fireUrl] = await Promise.all([
+      downloadImage(result.rgb_image_url),
+      downloadImage(result.cloud_image_url),
+      downloadImage(result.forest_image_url),
+      downloadImage(result.heatmap_image_url)
+    ]);
     
     onProgress?.(100, 'Forest detection completed!');
 
@@ -305,10 +333,10 @@ export async function predictForestDetection(
       job_id: result.job_id,
       status: 'success',
       image_urls: {
-        rgb: result.rgb_image_url,
-        cloud: result.cloud_image_url,
-        forest: result.forest_image_url,
-        fire: result.heatmap_image_url,
+        rgb: rgbUrl,
+        cloud: cloudUrl,
+        forest: forestUrl,
+        fire: fireUrl,
       },
     };
   } catch (error) {
@@ -319,33 +347,11 @@ export async function predictForestDetection(
 
 export async function predictFireRisk(
   file: File,
-  onProgress?: (progress: number, message: string) => void
+  onProgress?: ProgressCallback
 ): Promise<PredictResponse> {
   try {
-    onProgress?.(10, 'Submitting image for fire risk prediction...');
-    const jobResponse = await submitImageForFirePrediction(file);
-    
-    onProgress?.(20, 'Fire risk prediction started...');
-    await pollJobStatus(jobResponse.job_id, (status) => {
-      const mappedProgress = 20 + Math.floor((status.progress / 100) * 70);
-      onProgress?.(mappedProgress, status.message);
-    });
-
-    onProgress?.(90, 'Retrieving fire risk prediction results...');
-    const result = await getProcessingResult(jobResponse.job_id);
-    
-    onProgress?.(100, 'Fire risk prediction completed!');
-
-    return {
-      job_id: result.job_id,
-      status: 'success',
-      image_urls: {
-        rgb: result.rgb_image_url,
-        cloud: result.cloud_image_url,
-        forest: result.forest_image_url,
-        fire: result.heatmap_image_url,
-      },
-    };
+    // This is the same as the main predict function since fire risk needs the full pipeline
+    return await predict(file, onProgress);
   } catch (error) {
     console.error('Fire risk prediction error:', error);
     throw error;

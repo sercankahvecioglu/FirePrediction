@@ -1,17 +1,21 @@
-import { useEffect, useState } from 'react';
+import { useEffect } from 'react';
 import Header from '@/components/Header/Header';
 import InfoSection from '@/components/InfoSection/InfoSection';
 import ImageUploader from '@/components/ImageUploader/ImageUploader';
 import ResultsDisplay from '@/components/ResultsDisplay/ResultsDisplay';
-import { predict, type PredictResponse } from '@/services/api';
+import { useImageProcessing } from '@/hooks/useImageProcessing';
 import { useToast } from '@/hooks/use-toast';
 
 const Index = () => {
-  const [processing, setProcessing] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [results, setResults] = useState<PredictResponse | null>(null);
-  const [progress, setProgress] = useState(0);
-  const [progressMessage, setProgressMessage] = useState('');
+  const { 
+    isProcessing, 
+    progress, 
+    progressMessage, 
+    error, 
+    results, 
+    processImage, 
+    reset 
+  } = useImageProcessing();
   const { toast } = useToast();
 
   useEffect(() => {
@@ -21,31 +25,28 @@ const Index = () => {
   }, []);
 
   const handleUpload = async (file: File) => {
-    setError(null);
-    setProcessing(true);
-    setResults(null);
-    setProgress(0);
-    setProgressMessage('');
-    
     try {
-      const data = await predict(file, (progressValue, message) => {
-        setProgress(progressValue);
-        setProgressMessage(message);
-      });
-      setResults(data);
+      await processImage(file);
       toast({ 
         title: 'Processing completed', 
         description: 'Your satellite image has been successfully analyzed.' 
       });
     } catch (e: any) {
       const message = e?.message || 'Error processing the file. Please try again.';
-      setError(message);
-      toast({ title: 'Processing error', description: message });
-    } finally {
-      setProcessing(false);
-      setProgress(0);
-      setProgressMessage('');
+      toast({ 
+        title: 'Processing error', 
+        description: message,
+        variant: 'destructive'
+      });
     }
+  };
+
+  const handleError = (message: string) => {
+    toast({ 
+      title: 'Invalid file', 
+      description: message,
+      variant: 'destructive'
+    });
   };
 
   return (
@@ -56,8 +57,8 @@ const Index = () => {
           <h2 id="uploader-heading" className="sr-only">Upload</h2>
           <ImageUploader
             onUpload={handleUpload}
-            onError={(msg) => { setError(msg); toast({ title: 'Invalid file', description: msg }); }}
-            processing={processing}
+            onError={handleError}
+            processing={isProcessing}
             progress={progress}
             progressMessage={progressMessage}
             rgbUrl={results?.image_urls.rgb}

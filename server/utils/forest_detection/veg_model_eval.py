@@ -129,10 +129,6 @@ def ndvi_veg_detector(image_data, job_id, file_name=None, ndvi_threshold=0.3, mi
         print(f"Error processing {file_name}: {e}")
         return False, False, 0.0
 
-
-
-
-
 def veg_detector(input_folder, model_weights_path=None):
     """
     Filter .npy files to keep only forest images (prediction = 1)
