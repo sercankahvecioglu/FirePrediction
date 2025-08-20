@@ -4,8 +4,7 @@ import torch
 import torch.nn as nn
 from pathlib import Path
 import glob
-
-
+import torch.nn.functional as F
 
 # simple CNN arhcitecture for vegetation detection task
 # produces 1 (after sigmoid & argmax) if forest, 0 otherwise
@@ -27,7 +26,73 @@ class SimpleCNN(nn.Module):
         x = x.view(x.size(0), -1)
         x = torch.relu(self.fc1(x))
         return self.fc2(x)  # raw logits (no sigmoid)
+
+# --- MODEL INITIALIZATION ---
+
+model = SimpleCNN(in_channels=4)  # 4 channels: R, G, B, NDVI
+model.load_state_dict(torch.load("path/to/model_weights.pth"))
+model.eval()
+device = next(model.parameters()).device
+
+# ---- END INITIALIZATION ----
+
+def vegetation_cnn_detector(image_data, job_id, file_name=None, threshold=0.4):
+    """
+    CNN-based vegetation detection using a trained model
     
+    Args:
+        image_data: Image data array [height, width, channels]
+        job_id: Job identifier
+        file_name: Name of the file being processed
+        threshold: Probability threshold for vegetation detection (default: 0.4)
+    
+    Returns:
+        tuple: (success, is_forest, probability)
+    """
+    try:
+        print(f"Processing CNN vegetation detection of {file_name}")
+        
+        # Extract channels
+        red = image_data[:, :, 3]
+        green = image_data[:, :, 2]
+        blue = image_data[:, :, 1]
+        nir = image_data[:, :, 9]
+        
+        # Compute NDVI
+        ndvi = (nir - red) / (nir + red + 1e-5)
+        
+        print("NDVI calculated for CNN input")
+        
+        # Stack channels: R, G, B, NDVI
+        stacked = np.stack([red, green, blue, ndvi], axis=0)
+        
+        # Resize if needed (for .npy)
+        if stacked.shape[1:] != (64, 64):
+            tensor = torch.tensor(stacked, dtype=torch.float32).unsqueeze(0)  # [1, 4, H, W]
+            tensor = F.interpolate(tensor, size=(64, 64), mode='bilinear', align_corners=False)
+            print(f"Resized image from {stacked.shape[1:]} to (64, 64)")
+        else:
+            tensor = torch.tensor(stacked, dtype=torch.float32).unsqueeze(0)
+            print("Image already at correct size (64, 64)")
+        
+        # Run CNN inference
+        with torch.no_grad():
+            logit = model(tensor.to(device))
+            prob = torch.sigmoid(logit).item()
+            is_forest = prob > threshold
+            
+            print(f"CNN vegetation probability: {prob:.4f} for tile {file_name}")
+            
+            if is_forest:
+                print(f"  Forest detected in {file_name} (probability: {prob:.4f} > {threshold})")
+            else:
+                print(f"  No forest detected in {file_name} (probability: {prob:.4f} <= {threshold})")
+        
+        return True, is_forest, prob
+        
+    except Exception as e:
+        print(f"Error processing CNN vegetation detection for {file_name}: {e}")
+        return False, False, 0.0  
 
 
 def _ndvi_veg_detector(input_folder, ndvi_threshold=0.3, min_veg_percentage=15.0):
