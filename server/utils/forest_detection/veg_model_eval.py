@@ -9,33 +9,36 @@ import torch.nn.functional as F
 # simple CNN arhcitecture for vegetation detection task
 # produces 1 (after sigmoid & argmax) if forest, 0 otherwise
 class SimpleCNN(nn.Module):
-    def __init__(self, in_channels):
-        super().__init__()
+    def __init__(self, in_channels=4):
+        super(SimpleCNN, self).__init__()
         self.conv1 = nn.Conv2d(in_channels, 32, kernel_size=3, padding=1)
         self.conv2 = nn.Conv2d(32, 64, kernel_size=3, padding=1)
-        self.pool = nn.MaxPool2d(2,2)
-        # use adaptive pooling so FC receives fixed-size features regardless of input size
-        self.adapt = nn.AdaptiveAvgPool2d((4,4))  # outputs [B, 64, 4, 4]
-        self.fc1 = nn.Linear(64 * 4 * 4, 128)
-        self.fc2 = nn.Linear(128, 1)  # logits
+        self.pool = nn.MaxPool2d(2, 2)
+        self.fc1 = nn.Linear(64 * 16 * 16, 128)  # assuming 64x64 patches
+        self.fc2 = nn.Linear(128, 1)
 
     def forward(self, x):
-        x = self.pool(torch.relu(self.conv1(x)))
-        x = self.pool(torch.relu(self.conv2(x)))
-        x = self.adapt(x)
-        x = x.view(x.size(0), -1)
-        x = torch.relu(self.fc1(x))
-        return self.fc2(x)  # raw logits (no sigmoid)
+        x = self.pool(F.relu(self.conv1(x)))  # [B, 32, 32, 32]
+        x = self.pool(F.relu(self.conv2(x)))  # [B, 64, 16, 16]
+        x = x.view(x.size(0), -1)             # flatten
+        x = F.relu(self.fc1(x))
+        return self.fc2(x)  # return logits (no sigmoid)
 
 # --- MODEL INITIALIZATION ---
 
 # Get the absolute path to the current script's directory
 current_dir = os.path.dirname(os.path.abspath(__file__))
-model_path = os.path.join(current_dir, "..", "..", "trained_models", "WeightsProbe.pth")
+model_path = os.path.join(current_dir, "..", "trained_models", "WeightsProbe.pth")
 
 # Initialize model variables
 model = None
 device = None
+
+# Load model 
+
+model = SimpleCNN()
+model.load_state_dict(torch.load(model_path, map_location=torch.device("cpu"), weights_only=False))
+model.eval()
 
 # Uncomment these lines when model file is available:
 #model = SimpleCNN(in_channels=12)  # 12 channels to match the saved model

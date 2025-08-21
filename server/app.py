@@ -1072,7 +1072,8 @@ def process_forest_detection(job_id: str, cloud_job_id):
 
                 print("Image loaded! Executing ndvi vegetation detector")
 
-                success, is_forest, veg_percentage = forest_detection.ndvi_veg_detector(tile, job_id=job_id, file_name=f"{cloud_job_id}_tile_{metadata['tile_coordinates'][i]}.npy")
+                #success, is_forest, veg_percentage = forest_detection.ndvi_veg_detector(tile, job_id=job_id, file_name=f"{cloud_job_id}_tile_{metadata['tile_coordinates'][i]}.npy")
+                success, is_forest, veg_percentage = forest_detection.vegetation_cnn_detector(tile, job_id=job_id, file_name=f"{cloud_job_id}_tile_{metadata['tile_coordinates'][i]}.npy")
 
                 print("Information about NDVI")
                 print(f"  Valid: {success}")
