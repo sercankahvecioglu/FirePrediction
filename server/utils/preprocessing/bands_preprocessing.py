@@ -102,6 +102,8 @@ def extract_tiles_with_padding(image_path, name, tile_size, path):
 
     image = np.load(image_path)
 
+    print("Image Loaded. Tiling it...")
+
     metadata = pd.DataFrame(columns=['tile_number', 'tile_name', 'tile_coordinates', 'cloud_percentage', 'cloud?', 'vegetation_percentage', 'forest?'])
 
     h, w, c = image.shape
@@ -119,6 +121,9 @@ def extract_tiles_with_padding(image_path, name, tile_size, path):
     # Extract non-overlapping tiles
     padded_h, padded_w, _ = padded_image.shape
     for i in range(0, padded_h, ph):
+
+        print(f"Tiling row {i}")
+
         for j in range(0, padded_w, pw):
 
             metadata = pd.concat([

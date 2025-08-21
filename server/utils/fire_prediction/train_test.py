@@ -100,7 +100,8 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
             not_improved_epochs = 0
             best_val_loss = val_loss
             # Save the entire model (architecture + weights)
-            torch.save(model.state_dict(), f"/home/dario/Desktop/FirePrediction/trained_models/best_fireprediction_model.pth")
+            model_save_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "trained_models", "best_fireprediction_model.pth")
+            torch.save(model.state_dict(), model_save_path)
             print(f"  --> Saved best model (val_loss improved)\n")
         else: 
             not_improved_epochs += 1
@@ -117,7 +118,9 @@ def train_model(model, train_loader, val_loader, criterion, optimizer, device, e
 #-----------------------------------------------------------------
 
 # test evaluation loop
-def evaluate_model(model, test_loader, device, filenames, output_dir='/home/dario/Desktop/FirePrediction/TEST_PREDS'):
+def evaluate_model(model, test_loader, device, filenames, output_dir=None):
+    if output_dir is None:
+        output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "TEST_PREDS")
     model.eval()
     all_preds = []
     all_labels = []
@@ -166,10 +169,12 @@ def evaluate_model(model, test_loader, device, filenames, output_dir='/home/dari
 #-------------------------main.py section-------------------------
 
 
-train_dataset = Sent2Dataset("/home/dario/Desktop/FirePrediction/TILES_INPUT_DATA", 
-                             "/home/dario/Desktop/FirePrediction/TILES_LABELS")
-test_dataset = Sent2Dataset("/home/dario/Desktop/FirePrediction/TEST_INPUT_DATA",
-                            "/home/dario/Desktop/FirePrediction/TEST_LABELS")
+# Create datasets
+base_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..")
+train_dataset = Sent2Dataset(os.path.join(base_path, "TILES_INPUT_DATA"), 
+                             os.path.join(base_path, "TILES_LABELS"))
+test_dataset = Sent2Dataset(os.path.join(base_path, "TEST_INPUT_DATA"),
+                            os.path.join(base_path, "TEST_LABELS"))
 
 # --- train-val split ---
 val_ratio = 0.2  # 80/20 split
@@ -216,6 +221,7 @@ trained_model = train_model(unet_model, train_loader, val_loader, criterion, opt
 #-----------------------------------------------------------------
 
 # to reload previous model
-unet_model.load_state_dict(torch.load('/home/dario/Desktop/FirePrediction/best_fireprediction_model.pth', weights_only=True))
+model_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "best_fireprediction_model.pth")
+unet_model.load_state_dict(torch.load(model_path, weights_only=True))
 
 evaluate_model(unet_model, test_loader, 'cuda', test_filenames)

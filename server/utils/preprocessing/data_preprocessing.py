@@ -27,9 +27,14 @@ class BaseProcessor():
             cloud_threshold (float): Cloudy pixels % threshold for tiles discarding (0.0-1.0)
     """
     def __init__(self, dataset_name: str, 
-                        base_path: str = '/home/dario/Desktop/FirePrediction',
+                        base_path: str = None,
                         patch_size: tuple = (256, 256),
                         cloud_threshold: float = 0.5):
+        
+        if base_path is None:
+            # Use relative path from the current script directory
+            current_dir = os.path.dirname(os.path.abspath(__file__))
+            base_path = os.path.join(current_dir, "..", "..", "..")
         
         self.dataset_name = dataset_name
         self.base_path = base_path
@@ -108,7 +113,7 @@ class TrainDataProcessor(BaseProcessor):
     """
     
     def __init__(self, dataset_name: str, 
-                        base_path: str = '/home/dario/Desktop/FirePrediction',
+                        base_path: str = None,
                         patch_size: tuple = (256, 256),
                         cloud_threshold: float = 0.5):
         super().__init__(dataset_name, base_path, patch_size, cloud_threshold)
@@ -185,7 +190,7 @@ class SatelliteProcessor(BaseProcessor):
     """
     
     def __init__(self, dataset_name: str, 
-                        base_path: str = '/home/dario/Desktop/FirePrediction',
+                        base_path: str = None,
                         patch_size: tuple = (256, 256),
                         cloud_threshold: float = 0.5):
         super().__init__(dataset_name, base_path, patch_size, cloud_threshold)

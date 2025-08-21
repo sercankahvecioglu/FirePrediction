@@ -1,4 +1,5 @@
 import shutil
+import requests
 from typing import List, Dict, Optional, Tuple
 from fastapi import FastAPI, File, UploadFile, HTTPException, BackgroundTasks
 from fastapi.responses import FileResponse
@@ -27,8 +28,16 @@ import random
 
 # Add sys to the path
 sys.path.append(os.path.join(os.path.dirname(__file__), "utils"))
+sys.path.append(os.path.join(os.path.dirname(__file__), "utils", "TelegramBot"))
 
 from utils.mail.send_mail import send_mail # Sending mail adverting higher fire risk
+
+# Import Telegram bot server functions
+try:
+    from utils import TelegramBot
+except ImportError:
+    print("Warning: Telegram bot server not available. Fire alerts will be skipped.")
+    send_fire_alert = "h"
 
 # Load from utils library
 from utils import cloud_detection
@@ -120,6 +129,154 @@ app.mount("/static/images", StaticFiles(directory=DISPLAY_FOLDER), name="images"
 
 # ---------------------- #
 
+# ============================================================================
+# TELEGRAM BOT COMMUNICATION FUNCTIONS
+# ============================================================================
+
+TELEGRAM_BOT_API_URL = "http://localhost:5002"
+
+def send_telegram_fire_alert(image_path: str, message: str, job_id: str = None):
+    """
+    Send fire alert to Telegram bot via HTTP API
+    
+    Args:
+        image_path (str): Path to the fire analysis image
+        message (str): Alert message to send
+        job_id (str): Optional job ID for tracking
+        
+    Returns:
+        bool: True if alert sent successfully, False otherwise
+    """
+    try:
+        alert_data = {
+            "image_path": image_path,
+            "message": message,
+            "job_id": job_id
+        }
+        
+        response = requests.post(
+            f"{TELEGRAM_BOT_API_URL}/send-fire-alert",
+            json=alert_data,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            print(f"✅ Telegram alert sent successfully to {result.get('subscribers_count', 0)} subscribers")
+            return True
+        else:
+            print(f"❌ Failed to send Telegram alert. Status: {response.status_code}")
+            return False
+            
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error connecting to Telegram bot API: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error sending Telegram alert: {e}")
+        return False
+
+def send_telegram_fire_alert_with_risk(image_path: str, job_id: str, risk_level: str = "MEDIUM", custom_message: str = None):
+    """
+    Send fire alert with risk level to Telegram bot via HTTP API
+    
+    Args:
+        image_path (str): Path to the fire analysis image
+        job_id (str): Job ID for the analysis
+        risk_level (str): Risk level (LOW, MEDIUM, HIGH, CRITICAL)
+        custom_message (str): Optional custom message
+        
+    Returns:
+        bool: True if alert sent successfully, False otherwise
+    """
+    try:
+        params = {
+            "image_path": image_path,
+            "job_id": job_id,
+            "risk_level": risk_level
+        }
+        
+        if custom_message:
+            params["custom_message"] = custom_message
+        
+        response = requests.post(
+            f"{TELEGRAM_BOT_API_URL}/send-fire-alert-with-risk",
+            params=params,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            print(f"✅ Telegram risk alert sent successfully. Risk: {risk_level}, Subscribers: {result.get('subscribers_count', 0)}")
+            return True
+        else:
+            print(f"❌ Failed to send Telegram risk alert. Status: {response.status_code}")
+            return False
+            
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error connecting to Telegram bot API: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error sending Telegram risk alert: {e}")
+        return False
+
+def send_telegram_simple_alert(message: str):
+    """
+    Send simple text alert to Telegram bot via HTTP API
+    
+    Args:
+        message (str): Text message to send
+        
+    Returns:
+        bool: True if alert sent successfully, False otherwise
+    """
+    try:
+        alert_data = {"message": message}
+        
+        response = requests.post(
+            f"{TELEGRAM_BOT_API_URL}/send-simple-alert",
+            json=alert_data,
+            timeout=10
+        )
+        
+        if response.status_code == 200:
+            result = response.json()
+            print(f"✅ Telegram simple alert sent successfully to {result.get('subscribers_count', 0)} subscribers")
+            return True
+        else:
+            print(f"❌ Failed to send Telegram simple alert. Status: {response.status_code}")
+            return False
+            
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Error connecting to Telegram bot API: {e}")
+        return False
+    except Exception as e:
+        print(f"❌ Unexpected error sending Telegram simple alert: {e}")
+        return False
+
+def get_telegram_bot_status():
+    """
+    Get Telegram bot status and statistics
+    
+    Returns:
+        dict: Bot status information or None if connection failed
+    """
+    try:
+        response = requests.get(f"{TELEGRAM_BOT_API_URL}/status", timeout=5)
+        
+        if response.status_code == 200:
+            return response.json()
+        else:
+            return None
+            
+    except requests.exceptions.RequestException:
+        return None
+
+# ============================================================================
+# END TELEGRAM BOT COMMUNICATION
+# ============================================================================
+
+# ---------------------- #
+
 @app.get("/", tags=["Health Check"])
 def healthcheck():
     """
@@ -128,12 +285,96 @@ def healthcheck():
     Returns:
         dict: Welcome message and API status
     """
+    # Check Telegram bot status
+    telegram_status = get_telegram_bot_status()
+    
     return {
         "message": "Welcome to the Satellite Image Analysis API",
         "status": "operational",
         "version": "2.0.0",
-        "available_analyses": ["cloud_detection", "forest_detection", "fire_prediction"]
+        "available_analyses": ["cloud_detection", "forest_detection", "fire_prediction"],
+        "telegram_bot": {
+            "connected": telegram_status is not None,
+            "status": telegram_status.get("status", "unknown") if telegram_status else "disconnected",
+            "subscribers": telegram_status.get("subscribers_count", 0) if telegram_status else 0
+        }
     }
+
+# ============================================================================
+# TELEGRAM TESTING ENDPOINTS
+# ============================================================================
+
+@app.post("/test-telegram-alert", tags=["Testing"])
+async def test_telegram_alert(message: str = "🔥 Test fire alert from Satellite Analysis API"):
+    """
+    Test endpoint to verify Telegram bot communication
+    
+    Args:
+        message (str): Test message to send
+        
+    Returns:
+        dict: Test result status
+    """
+    # Create a test image if it doesn't exist
+    test_image_path = os.path.join(DISPLAY_FOLDER, "test_fire_alert.png")
+    
+    if not os.path.exists(test_image_path):
+        plt.figure(figsize=(10, 8))
+        plt.text(0.5, 0.5, "🔥 TEST FIRE ALERT 🔥", fontsize=24, ha='center', va='center', 
+                bbox=dict(boxstyle="round,pad=0.5", facecolor="orange", alpha=0.8))
+        plt.text(0.5, 0.3, "This is a test alert from the\nSatellite Analysis API", 
+                fontsize=14, ha='center', va='center')
+        plt.xlim(0, 1)
+        plt.ylim(0, 1)
+        plt.axis('off')
+        plt.title("Test Fire Risk Heatmap", fontsize=16, pad=20)
+        plt.tight_layout()
+        plt.savefig(test_image_path, dpi=150, bbox_inches='tight', facecolor='white')
+        plt.close()
+    
+    # Test simple alert
+    simple_success = send_telegram_simple_alert(f"📊 Simple Test: {message}")
+    
+    # Test fire alert with image
+    fire_success = send_telegram_fire_alert(test_image_path, f"🔥 Fire Test: {message}", "test-job-id")
+    
+    # Test risk alert
+    risk_success = send_telegram_fire_alert_with_risk(test_image_path, "test-job-id", "MEDIUM", f"🟡 Risk Test: {message}")
+    
+    # Get bot status
+    bot_status = get_telegram_bot_status()
+    
+    return {
+        "test_results": {
+            "simple_alert": simple_success,
+            "fire_alert": fire_success,
+            "risk_alert": risk_success
+        },
+        "bot_status": bot_status,
+        "test_image_created": os.path.exists(test_image_path),
+        "message": "Test alerts sent. Check Telegram bot for messages."
+    }
+
+@app.get("/telegram-status", tags=["Testing"])
+async def get_telegram_status():
+    """
+    Get current Telegram bot status and statistics
+    
+    Returns:
+        dict: Telegram bot status information
+    """
+    status = get_telegram_bot_status()
+    
+    if status:
+        return {
+            "connected": True,
+            "telegram_bot": status
+        }
+    else:
+        return {
+            "connected": False,
+            "message": "Telegram bot is not responding. Please ensure it's running on port 5002."
+        }
 
 # ============================================================================
 # STEP 1: SEND IMAGE - Submit image for processing
@@ -573,6 +814,15 @@ def cleanup_files():
         dict: Cleanup confirmation message
     """
     try:
+        # Create folders if necessary
+        os.makedirs(RAW_IMAGES_PATH, exist_ok=True)
+        os.makedirs(CLOUD_IMAGES_PATH, exist_ok=True)
+        os.makedirs(TILES_IMAGES_PATH, exist_ok=True)
+        os.makedirs(FOREST_IMAGES_PATH, exist_ok=True)
+        os.makedirs(FIRE_IMAGES_PATH, exist_ok=True)
+        os.makedirs(METADATA_FOLDER, exist_ok=True)
+        os.makedirs(DISPLAY_FOLDER, exist_ok=True)
+
         shutil.rmtree(RAW_IMAGES_PATH)
         shutil.rmtree(CLOUD_IMAGES_PATH)
         shutil.rmtree(TILES_IMAGES_PATH)
@@ -980,6 +1230,87 @@ def process_fire_prediction(job_id: str, cloud_job_id: str):
 
         plotting.create_heatmap(DATA_PATH, metadata_path=metadata_path, job_id=job_id)
 
+        # Analyze fire risk and send Telegram alert
+        processing_jobs[job_id].message = "Analyzing fire risk and sending alerts..."
+        
+        high_risk_tiles = []
+        total_high_risk_pixels = 0
+        
+        # Analyze each tile for high fire risk (probability > 0.5)
+        for i in range(metadata.shape[0]):
+            cloudy = metadata['cloud?'][i]
+            if cloudy:
+                continue
+                
+            # Load fire probability for this tile
+            fire_prob_path = os.path.join(FIRE_IMAGES_PATH, f"{job_id}_tile_{metadata['tile_coordinates'][i]}_fire_prob.npy")
+            
+            if os.path.exists(fire_prob_path):
+                fire_prob = np.load(fire_prob_path)
+                
+                # Count pixels with probability > 0.5
+                high_risk_pixels = np.sum(fire_prob > 0.5) + 1
+                
+                if high_risk_pixels > 0:
+                    print("High risk tile fount")
+                    high_risk_tiles.append({
+                        'tile_id': metadata['tile_coordinates'][i],
+                        'high_risk_pixels': int(high_risk_pixels),
+                        'total_pixels': fire_prob.size,
+                        'risk_percentage': (high_risk_pixels / fire_prob.size) * 100
+                    })
+                    total_high_risk_pixels += high_risk_pixels
+        
+        # Send Telegram alert if there are high-risk areas and send_fire_alert is available
+        if True:
+            heatmap_path = os.path.join(DISPLAY_FOLDER, f"{job_id}_heatmap.png")
+            
+            if high_risk_tiles:
+                # Create message for high-risk areas
+                risk_message = f"🔥 FIRE RISK ALERT 🔥\n\n"
+                risk_message += f"High fire risk detected in {len(high_risk_tiles)} tile(s):\n\n"
+                
+                for tile_info in high_risk_tiles[:10]:  # Limit to first 10 tiles to avoid message being too long
+                    risk_message += f"• Tile {tile_info['tile_id']}: {tile_info['risk_percentage']:.1f}% high risk ({tile_info['high_risk_pixels']} pixels)\n"
+                
+                if len(high_risk_tiles) > 10:
+                    risk_message += f"... and {len(high_risk_tiles) - 10} more tiles\n"
+                
+                risk_message += f"\nTotal high-risk pixels detected: {total_high_risk_pixels}"
+                risk_message += f"\nAnalysis ID: {job_id}"
+                
+                # Determine risk level based on number of affected tiles and pixels
+                if len(high_risk_tiles) >= 5 or total_high_risk_pixels >= 1000:
+                    risk_level = "CRITICAL"
+                elif len(high_risk_tiles) >= 3 or total_high_risk_pixels >= 500:
+                    risk_level = "HIGH"
+                elif len(high_risk_tiles) >= 1 or total_high_risk_pixels >= 100:
+                    risk_level = "MEDIUM"
+                else:
+                    risk_level = "LOW"
+                
+                # Add risk level to message
+                risk_icons = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🟢"}
+                risk_message = f"{risk_icons[risk_level]} Fire Risk Level: {risk_level}\n\n" + risk_message
+                
+                try:
+                    # Send Telegram alert using HTTP API
+                    send_telegram_fire_alert_with_risk(heatmap_path, job_id, risk_level, risk_message)
+                    print(f"Fire alert sent via Telegram for job {job_id} with risk level: {risk_level}")
+                except Exception as e:
+                    print(f"Error sending Telegram fire alert: {e}")
+            else:
+                # No high risk detected
+                no_risk_message = f"🟢 Fire Risk: LOW\n\nNo immediate fire threats detected in the analyzed area.\n\nAnalysis ID: {job_id}"
+                try:
+                    # Send low risk alert using HTTP API
+                    send_telegram_fire_alert_with_risk(heatmap_path, job_id, "LOW", no_risk_message)
+                    print(f"Low risk alert sent via Telegram for job {job_id}")
+                except Exception as e:
+                    print(f"Error sending Telegram low risk alert: {e}")
+        else:
+            print("Telegram bot not available - skipping fire alert")
+
         processing_time = (datetime.now() - processing_jobs[job_id].created_at).total_seconds()
 
         processing_jobs[job_id].status = "completed"
@@ -1014,5 +1345,4 @@ def process_fire_prediction(job_id: str, cloud_job_id: str):
 
 
 if __name__ == "__main__":
-    # uvicorn.run("app:app", host="0.0.0.0", port=5001, workers=4)
-    uvicorn.run("app:app", host="0.0.0.0", port=5001, reload=True)
+    uvicorn.run("app:app", host="0.0.0.0", port=5001)

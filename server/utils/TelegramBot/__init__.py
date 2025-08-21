@@ -13,22 +13,20 @@ Available functions:
 """
 
 from .server import (
-    update_fire_message,
-    send_alert_to_subscribers,
     get_subscribers,
     add_subscriber,
     remove_subscriber,
-    is_bot_running
+    is_bot_running,
+    send_fire_alert
 )
 
 __version__ = "1.0.0"
 __author__ = "Fire Alert Bot Team"
 
 __all__ = [
-    "update_fire_message",
-    "send_alert_to_subscribers", 
     "get_subscribers",
     "add_subscriber",
     "remove_subscriber",
-    "is_bot_running"
+    "is_bot_running",
+    "send_fire_alert"
 ]

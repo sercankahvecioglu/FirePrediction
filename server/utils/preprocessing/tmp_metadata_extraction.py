@@ -146,7 +146,9 @@ class MetadataExtractor:
         
         return metadata
 
-XML_FOLDER_PATH = "/home/dario/Desktop/FirePrediction/copied_xml_files"
+# Use relative path from the current script directory
+current_dir = os.path.dirname(os.path.abspath(__file__))
+XML_FOLDER_PATH = os.path.join(current_dir, "..", "..", "..", "copied_xml_files")
 
 extractor = MetadataExtractor(XML_FOLDER_PATH)
 
@@ -155,7 +157,7 @@ when = ['pre', 'post']
 
 for country in countries:
     for tim in when:
-        metadata = extractor.extract_geospatial_metadata(country, tim)
-
-        with open(os.path.join("/home/dario/Desktop/FirePrediction/", f"{country}_{tim}_tiles_data.pkl"), "wb") as f:
-            pickle.dump(metadata, f)
+        tiles_data = extractor.extract_all_metadata(country, tim, "30m")
+        output_dir = os.path.join(current_dir, "..", "..", "..")
+        with open(os.path.join(output_dir, f"{country}_{tim}_tiles_data.pkl"), "wb") as f:
+            pickle.dump(tiles_data, f)

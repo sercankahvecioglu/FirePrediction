@@ -4,9 +4,7 @@ import os
 from pathlib import Path
 import glob
 
-def create_prediction_comparison_plots(labels_dir="/home/dario/Desktop/FirePrediction/TEST_LABELS", 
-                                     preds_dir="/home/dario/Desktop/FirePrediction/TEST_PREDS",
-                                     output_dir="/home/dario/Desktop/FirePrediction/PREDS_VS_LABELS"):
+def create_prediction_comparison_plots(labels_dir=None, preds_dir=None, output_dir=None):
     """
     Creates side-by-side comparison plots of predictions vs ground truth labels.
     
@@ -15,6 +13,15 @@ def create_prediction_comparison_plots(labels_dir="/home/dario/Desktop/FirePredi
         preds_dir: Directory containing prediction .npy files  
         output_dir: Directory to save comparison plots
     """
+    # Set default paths relative to project root
+    base_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..")
+    
+    if labels_dir is None:
+        labels_dir = os.path.join(base_path, "TEST_LABELS")
+    if preds_dir is None:
+        preds_dir = os.path.join(base_path, "TEST_PREDS")
+    if output_dir is None:
+        output_dir = os.path.join(base_path, "PREDS_VS_LABELS")
     
     # Create output directory if it doesn't exist
     os.makedirs(output_dir, exist_ok=True)

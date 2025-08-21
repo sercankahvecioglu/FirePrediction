@@ -36,3 +36,5 @@ results/a7dff035-8983-4d34-aece-97f8ce192817_cloud.png
 results/a7dff035-8983-4d34-aece-97f8ce192817_rgb.png
 results/a61bee87-b045-4f18-a155-d8c96f6c4be0_heatmap.png
 results/ed937531-3bf9-428f-bdae-273eca80eafa_heatmap.png
+server/utils/cloud_detection/hello.npy
+.env.example

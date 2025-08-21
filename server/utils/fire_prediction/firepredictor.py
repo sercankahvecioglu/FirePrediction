@@ -10,7 +10,7 @@ from .unet import UNet
 
 CURRENT_FOLDER = os.getcwd()
 PARENT_FOLDER = os.path.dirname(CURRENT_FOLDER)
-MODEL_FOLDER = os.path.join(PARENT_FOLDER, "server/utils/trained_models")
+MODEL_FOLDER = os.path.join(PARENT_FOLDER, "app/utils/trained_models")
 FIRE_MODEL = os.path.join(MODEL_FOLDER, "best_fireprediction_model.pth")
 
 REQUIRED_BANDS = ['B08', 'B11', 'B12', 'NDVI', 'NDMI']
@@ -86,7 +86,8 @@ def predict_fire(data: np.ndarray):
     return mask, output
 
 if __name__ == "__main__":
-    DATA_PATH = "/Users/diego/Documents/FirePrediction/server/data/TILES_IMAGES/14e611ab-d0e2-48c8-90ff-db0b4e59c4bc_tile_(0, 0).npy"
+    # Use relative path from the project root
+    DATA_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "data", "TILES_IMAGES", "14e611ab-d0e2-48c8-90ff-db0b4e59c4bc_tile_(0, 0).npy")
 
     data = np.load(DATA_PATH)
 

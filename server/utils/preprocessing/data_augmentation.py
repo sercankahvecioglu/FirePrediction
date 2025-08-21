@@ -74,7 +74,7 @@ def augment_npy_files(folder_path):
 def main():
     """Main function to run data augmentation"""
     # Get the current working directory or specify folder path
-    current_folder = "/home/dario/Desktop/sample_veg_detection_data/VEGETATION"
+    current_folder = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", "..", "sample_data", "VEGETATION")
     
     # You can also specify a different folder by uncommenting and modifying the line below:
     # folder_to_process = input("Enter folder path (or press Enter for current directory): ").strip()

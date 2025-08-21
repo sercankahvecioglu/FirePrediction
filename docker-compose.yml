@@ -1,27 +1,48 @@
 version: '3.8'
 
 services:
-  frontend:
-    build:
-      context: ./client
-      dockerfile: Dockerfile
-    container_name: flamesentinels-frontend
-    ports:
-      - "3000:80"  # browser will use localhost:3000
-    depends_on:
-      - backend
-    networks:
-      - flamesentinels-network
-
   backend:
     build:
       context: ./server
       dockerfile: Dockerfile
     container_name: flamesentinels-backend
     ports:
-      - "5001:5000"  # optional, just for debugging from host
+      - "5001:5001"  # Main FastAPI server
+      - "5002:5002"  # Telegram Bot API
+    environment:
+      # Add environment variables for production
+      - PYTHONUNBUFFERED=1
+      - TELEGRAM_TOKEN=${TELEGRAM_TOKEN:-7572088114:AAFvD5SVexAynrLUEzl1hjvXDY35UGnqz34}
+    volumes:
+      # Persist data and results
+      - ./server/data:/app/data
+      - ./results:/app/results
     networks:
       - flamesentinels-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5001/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # Optional: Add a reverse proxy for production
+  nginx:
+    image: nginx:alpine
+    container_name: flamesentinels-proxy
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      # Uncomment for SSL certificates
+      # - ./ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - backend
+    networks:
+      - flamesentinels-network
+    profiles:
+      - production
 
 networks:
   flamesentinels-network:

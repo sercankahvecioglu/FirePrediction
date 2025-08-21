@@ -29,10 +29,22 @@ class SimpleCNN(nn.Module):
 
 # --- MODEL INITIALIZATION ---
 
-model = SimpleCNN(in_channels=4)  # 4 channels: R, G, B, NDVI
-model.load_state_dict(torch.load("path/to/model_weights.pth"))
-model.eval()
-device = next(model.parameters()).device
+# Get the absolute path to the current script's directory
+current_dir = os.path.dirname(os.path.abspath(__file__))
+model_path = os.path.join(current_dir, "..", "..", "trained_models", "WeightsProbe.pth")
+
+# Initialize model variables
+model = None
+device = None
+
+# Uncomment these lines when model file is available:
+#model = SimpleCNN(in_channels=12)  # 12 channels to match the saved model
+#if os.path.exists(model_path):
+#    model.load_state_dict(torch.load(model_path, map_location=torch.device("cpu"), weights_only=False))
+#    model.eval()
+#    device = next(model.parameters()).device
+#else:
+#    print(f"Warning: Model file not found at {model_path}")
 
 # ---- END INITIALIZATION ----
 
@@ -49,6 +61,12 @@ def vegetation_cnn_detector(image_data, job_id, file_name=None, threshold=0.4):
     Returns:
         tuple: (success, is_forest, probability)
     """
+    
+    # Check if model is available
+    if model is None or device is None:
+        print(f"Warning: CNN model not loaded for {file_name}. Falling back to NDVI detector.")
+        return ndvi_veg_detector(image_data, job_id, file_name)
+    
     try:
         print(f"Processing CNN vegetation detection of {file_name}")
         
@@ -203,12 +221,14 @@ def veg_detector(input_folder, model_weights_path=None):
         model_weights_path (str): Path to model weights (default: trained_models/vegcnn_weights.pth)
     """
     if model_weights_path is None:
-        model_weights_path = "/home/dario/Desktop/FirePrediction/trained_models/vegcnn_weights.pth"
+        # Use relative path from the current script directory
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        model_weights_path = os.path.join(current_dir, "..", "..", "trained_models", "vegcnn_weights.pth")
     
     # Load model
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = SimpleCNN(in_channels=14)
-    model.load_state_dict(torch.load(model_weights_path, map_location=device))
+    model.load_state_dict(torch.load(model_weights_path, map_location=device, weights_only=False))
     model.to(device)
     model.eval()
     
