@@ -1249,10 +1249,10 @@ def process_fire_prediction(job_id: str, cloud_job_id: str):
                 fire_prob = np.load(fire_prob_path)
                 
                 # Count pixels with probability > 0.5
-                high_risk_pixels = np.sum(fire_prob > 0.5) + 1
+                high_risk_pixels = np.sum(fire_prob > 0.5)
                 
-                if high_risk_pixels > 0:
-                    print("High risk tile fount")
+                if high_risk_pixels > 1000:
+                    print("High risk tile found")
                     high_risk_tiles.append({
                         'tile_id': metadata['tile_coordinates'][i],
                         'high_risk_pixels': int(high_risk_pixels),
