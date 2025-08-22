@@ -5,18 +5,18 @@ Processes all label files in TILES_LABELS and saves RGB images to LABELS_IMGS fo
 """
 
 import os
+import sys
 import numpy as np
 import matplotlib.pyplot as plt
 from matplotlib.colors import ListedColormap
 
-def create_label_images(labels_dir="TILES_LABELS", output_dir="LABELS_IMGS", n_classes=3):
+def create_label_images(labels_dir="TILES_LABELS", output_dir="LABELS_IMGS"):
     """
-    Convert label files to RGB images using custom colormap.
+    Convert label files with continuous values to RGB images using a continuous colormap.
     
     Args:
         labels_dir: Directory containing .npy label files
         output_dir: Directory to save RGB images
-        n_classes: Number of classes in the labels (default: 3)
     """
     
     # Create output directory if it doesn't exist
@@ -31,11 +31,26 @@ def create_label_images(labels_dir="TILES_LABELS", output_dir="LABELS_IMGS", n_c
     
     print(f"Found {len(label_files)} label files to process")
     
-    # Create a colormap for the classes
-    # Custom color mapping: 0=navy blue, 1=yellow, 2=red
-    colors = [(0, 0, 0.5, 1), (1, 1, 0, 1), (1, 0, 0, 1)]  # Navy Blue, Yellow, Red (RGBA)
-    custom_cmap = ListedColormap(colors[:n_classes])
+    # Use a continuous colormap from matplotlib (e.g., RdYlGn_r)
+    cmap = plt.get_cmap('RdYlGn_r')
     
+    # Compute global min/max for normalization (optional: can use per-image min/max)
+    all_min = None
+    all_max = None
+    for filename in label_files:
+        label_path = os.path.join(labels_dir, filename)
+        labels = np.load(label_path)
+        if len(labels.shape) == 3 and labels.shape[2] == 1:
+            labels = labels.squeeze(2)
+        min_val = np.nanmin(labels)
+        max_val = np.nanmax(labels)
+        if all_min is None or min_val < all_min:
+            all_min = min_val
+        if all_max is None or max_val > all_max:
+            all_max = max_val
+
+    print(f"Global min/max for all labels: {all_min:.4f} / {all_max:.4f}")
+
     # Process each label file
     for i, filename in enumerate(label_files):
         print(f"Processing {i+1}/{len(label_files)}: {filename}")
@@ -48,19 +63,24 @@ def create_label_images(labels_dir="TILES_LABELS", output_dir="LABELS_IMGS", n_c
             if len(labels.shape) == 3 and labels.shape[2] == 1:
                 labels = labels.squeeze(2)
             
-            # Ensure labels are in valid range [0, n_classes-1]
-            labels = np.clip(labels, 0, n_classes - 1)
+            # Optionally, clip to global min/max to avoid outliers
+            labels_vis = np.clip(labels, all_min, all_max)
             
-            # Create the image using the colormap
+            # Create the image using the colormap, scaling to global min/max
             fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-            ax.imshow(labels, cmap=custom_cmap, vmin=0, vmax=n_classes-1)
+            im = ax.imshow(labels_vis, cmap=cmap, vmin=all_min, vmax=all_max)
             ax.axis('off')  # Remove axes
+            
+            # Add a colorbar with custom ticks and labels
+            cbar = fig.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            cbar.set_ticks([0, 0.2, 0.4, 0.6, 0.8, 1])
+            cbar.set_ticklabels(['<0.1', '0.2', '0.4', '0.6', '0.8', '>0.9'])
             
             # Save the image
             output_filename = filename.replace('.npy', '_labels.png')
             output_path = os.path.join(output_dir, output_filename)
             
-            plt.savefig(output_path, bbox_inches='tight', pad_inches=0, dpi=150)
+            plt.savefig(output_path, bbox_inches=None, pad_inches=0, dpi=150)
             plt.close()  # Close the figure to free memory
             
         except Exception as e:
@@ -76,12 +96,8 @@ def create_label_images(labels_dir="TILES_LABELS", output_dir="LABELS_IMGS", n_c
     if len(sample_data.shape) == 3 and sample_data.shape[2] == 1:
         sample_data = sample_data.squeeze(2)
     
-    unique_classes = np.unique(sample_data)
-    print(f"Classes found in sample file: {unique_classes}")
-    print(f"Color mapping:")
-    for i, class_id in enumerate(range(n_classes)):
-        color_rgb = [int(c * 255) for c in colors[i][:3]]  # Convert to RGB 0-255
-        print(f"  Class {class_id}: RGB{tuple(color_rgb)}")
+    print(f"Sample file min/max: {np.nanmin(sample_data):.4f} / {np.nanmax(sample_data):.4f}")
+    print(f"Colormap used: RdYlGn_r")
 
 
 def create_input_images(input_dir="TILES_INPUT_DATA", output_dir="INPUT_IMGS", bands=[3, 2, 1]):
@@ -141,7 +157,7 @@ def create_input_images(input_dir="TILES_INPUT_DATA", output_dir="INPUT_IMGS", b
             output_filename = filename.replace('.npy', '_input.png')
             output_path = os.path.join(output_dir, output_filename)
             
-            plt.savefig(output_path, bbox_inches='tight', pad_inches=0, dpi=150)
+            plt.savefig(output_path, bbox_inches=None, pad_inches=0, dpi=150)
             plt.close()  # Close the figure to free memory
             
         except Exception as e:
@@ -192,9 +208,8 @@ def create_combined_visualization(input_dir="TILES_INPUT_DATA", labels_dir="TILE
     
     print(f"Found {len(common_files)} common files to process")
     
-    # Create a colormap for the classes
-    colors = [(0, 0, 0.5, 1), (1, 1, 0, 1), (1, 0, 0, 1)]  # Navy Blue, Yellow, Red (RGBA)
-    custom_cmap = ListedColormap(colors[:n_classes])
+    # Use RdYlGn_r colormap from matplotlib
+    cmap = plt.get_cmap('RdYlGn_r', n_classes)
     
     # Process each common file
     for i, filename in enumerate(sorted(common_files)):
@@ -236,7 +251,7 @@ def create_combined_visualization(input_dir="TILES_INPUT_DATA", labels_dir="TILE
             ax1.axis('off')
             
             # Plot labels
-            ax2.imshow(labels, cmap=custom_cmap, vmin=0, vmax=n_classes-1)
+            ax2.imshow(labels, cmap=cmap, vmin=0, vmax=n_classes-1)
             ax2.set_title('Labels', fontsize=14)
             ax2.axis('off')
             
@@ -247,7 +262,7 @@ def create_combined_visualization(input_dir="TILES_INPUT_DATA", labels_dir="TILE
             output_filename = filename.replace('.npy', '_combined.png')
             output_path = os.path.join(output_dir, output_filename)
             
-            plt.savefig(output_path, bbox_inches='tight', pad_inches=0.1, dpi=150)
+            plt.savefig(output_path, bbox_inches=None, pad_inches=0.1, dpi=150)
             plt.close()  # Close the figure to free memory
             
         except Exception as e:
@@ -273,10 +288,8 @@ def create_single_label_image(input_path, output_path, n_classes=3):
     
     print(f"Processing single file: {input_path}")
     
-    # Create a colormap for the classes
-    # Custom color mapping: 0=navy blue, 1=yellow, 2=red
-    colors = [(0, 0, 0.5, 1), (1, 1, 0, 1), (1, 0, 0, 1)]  # Navy Blue, Yellow, Red (RGBA)
-    custom_cmap = ListedColormap(colors[:n_classes])
+    # Use RdYlGn_r colormap from matplotlib
+    cmap = plt.get_cmap('RdYlGn_r', n_classes)
     
     try:
         # Load the label file
@@ -291,11 +304,11 @@ def create_single_label_image(input_path, output_path, n_classes=3):
         
         # Create the image using the colormap
         fig, ax = plt.subplots(1, 1, figsize=(8, 8))
-        ax.imshow(labels, cmap=custom_cmap, vmin=0, vmax=n_classes-1)
+        ax.imshow(labels, cmap=cmap, vmin=0, vmax=n_classes-1)
         ax.axis('off')  # Remove axes
         
         # Save the image
-        plt.savefig(output_path, bbox_inches='tight', pad_inches=0, dpi=150)
+        plt.savefig(output_path, bbox_inches=None, pad_inches=0, dpi=150)
         plt.close()  # Close the figure to free memory
         
         print(f"Successfully saved image to: {output_path}")
@@ -304,10 +317,7 @@ def create_single_label_image(input_path, output_path, n_classes=3):
         unique_classes = np.unique(labels)
         print(f"Classes found in file: {unique_classes}")
         print(f"Image shape: {labels.shape}")
-        print(f"Color mapping:")
-        for i, class_id in enumerate(range(n_classes)):
-            color_rgb = [int(c * 255) for c in colors[i][:3]]  # Convert to RGB 0-255
-            print(f"  Class {class_id}: RGB{tuple(color_rgb)}")
+        print(f"Colormap used: RdYlGn_r")
         
     except Exception as e:
         print(f"Error processing {input_path}: {str(e)}")
@@ -317,33 +327,42 @@ if __name__ == "__main__":
     # Set the working directory to the script's directory
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
-    
+
+    # Parse command line arguments for input and output folders
+    # Usage: python create_label_images.py [input_folder] [output_folder]
+    if len(sys.argv) >= 3:
+        input_folder = sys.argv[1]
+        output_folder = sys.argv[2]
+    else:
+        input_folder = "TILES_LABELS"
+        output_folder = "LABELS_IMGS"
+
     print("="*60)
     print("FIRE PREDICTION DATA VISUALIZATION")
     print("="*60)
-    
+
     # 1. Process TILES_LABELS - convert to categorical color images
     print("\n1. Processing TILES_LABELS directory...")
-    create_label_images()
-    
+    create_label_images(labels_dir=input_folder, output_dir=output_folder)
+
     # 2. Process TILES_INPUT_DATA - convert to RGB images using bands [3, 2, 1]
     print("\n2. Processing TILES_INPUT_DATA directory...")
-    create_input_images()
-    
+    create_input_images(input_dir="TILES_INPUT_DATA", output_dir="INPUT_IMGS")
+
     # 3. Create combined side-by-side visualizations
     print("\n3. Creating combined visualizations...")
-    create_combined_visualization()
-    
+    create_combined_visualization(input_dir="TILES_INPUT_DATA", labels_dir=input_folder, output_dir=output_folder)
+
     # 4. Process the single file in full_labels (if exists)
     print("\n4. Processing full_labels directory...")
     full_labels_input = "full_labels/dnbr_normalized.npy"
-    full_labels_output = "LABELS_IMGS/dnbr_normalized_full.png"
-    
+    full_labels_output = os.path.join(output_folder, "dnbr_normalized_full.png")
+
     if os.path.exists(full_labels_input):
         create_single_label_image(full_labels_input, full_labels_output)
     else:
         print(f"File not found: {full_labels_input}")
-    
+
     print("\n" + "="*60)
     print("PROCESSING COMPLETE!")
     print("="*60)
@@ -351,5 +370,5 @@ if __name__ == "__main__":
     print("- *_labels.png: Categorical visualization of label data")
     print("- *_input.png: RGB visualization of input data (bands 3,2,1)")
     print("- *_combined.png: Side-by-side input and label visualization")
-    print(f"All images saved in: LABELS_IMGS/")
+    print(f"All images saved in: {output_folder}/")
     print("="*60)
