@@ -957,7 +957,7 @@ def process_cloud_detection(job_id: str, image: np.ndarray, tiles_size: int):
         for i in range(metadata.shape[0]):
             tile_path = os.path.join(TILES_IMAGES_PATH, f"{job_id}_tile_{metadata['tile_coordinates'][i]}.npy")
             
-            result, cloud_mask, perc_cloudy = cloud_detection.is_cloudy(tile_path, job_id=job_id, cloud_threshold=0.5)
+            result, cloud_mask, perc_cloudy = cloud_detection.is_cloudy(tile_path, job_id=job_id, cloud_threshold=0.4)
 
             # Save cloud_masks
 
@@ -1072,8 +1072,8 @@ def process_forest_detection(job_id: str, cloud_job_id):
 
                 print("Image loaded! Executing ndvi vegetation detector")
 
-                #success, is_forest, veg_percentage = forest_detection.ndvi_veg_detector(tile, job_id=job_id, file_name=f"{cloud_job_id}_tile_{metadata['tile_coordinates'][i]}.npy")
-                success, is_forest, veg_percentage = forest_detection.vegetation_cnn_detector(tile, job_id=job_id, file_name=f"{cloud_job_id}_tile_{metadata['tile_coordinates'][i]}.npy")
+                success, is_forest, veg_percentage = forest_detection.ndvi_veg_detector(tile, job_id=job_id, file_name=f"{cloud_job_id}_tile_{metadata['tile_coordinates'][i]}.npy")
+                #success, is_forest, veg_percentage = forest_detection.vegetation_cnn_detector(tile, job_id=job_id, file_name=f"{cloud_job_id}_tile_{metadata['tile_coordinates'][i]}.npy")
 
                 print("Information about NDVI")
                 print(f"  Valid: {success}")

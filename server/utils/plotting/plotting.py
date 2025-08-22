@@ -201,7 +201,7 @@ def create_forest_picture(output_folder, metadata_path, job_id=None, cloud_job_i
 
             coord = eval(metadata['tile_coordinates'][i])  # (row, col)
 
-            if not is_cloudy and is_forest:
+            if True or (not is_cloudy and is_forest):
 
                 tile_path = os.path.join(TILES_IMAGES_PATH, f"{cloud_job_id}_tile_{metadata['tile_coordinates'][i]}.npy")
 
@@ -218,6 +218,14 @@ def create_forest_picture(output_folder, metadata_path, job_id=None, cloud_job_i
                 rgb = tile[:,:,[3,2,1]]  # Extract RGB bands for display
                 gamma = 1.2  # >1 aclara sombras y realza color
                 rgb = np.power(rgb * 255.0, gamma) / 255.0
+
+                if is_cloudy:
+                    # Black
+                    rgb = np.zeros((256, 256, 3), dtype=np.float32)
+                elif not is_forest:
+                    # Red
+                    rgb = np.zeros((256, 256, 3), dtype=np.float32)
+                    rgb[..., 0] = 255
 
             else:
                 if is_cloudy:
@@ -304,10 +312,10 @@ def create_heatmap(output_folder, metadata_path, job_id=None):
                     fire_prob = np.squeeze(fire_prob)
                     fire_prob_dict[coord] = fire_prob
                 else:
-                    fire_prob_dict[coord] = np.ones((256, 256), dtype=np.float32)
+                    fire_prob_dict[coord] = np.zeros((256, 256), dtype=np.float32)
 
             else:
-                fire_prob_dict[coord] = np.ones((256, 256), dtype=np.float32)
+                fire_prob_dict[coord] = np.zeros((256, 256), dtype=np.float32)
 
         print(f"Processing heatmap for: {job_id}")
 
@@ -320,7 +328,7 @@ def create_heatmap(output_folder, metadata_path, job_id=None):
 
         # Create and display heatmap
         fig, ax = plt.subplots(figsize=(10, 10))
-        im = ax.imshow(full_fire_prob, cmap="coolwarm", interpolation="nearest", vmin=0, vmax=1)
+        im = ax.imshow(full_fire_prob, cmap="RdYlGn_r", interpolation="nearest", vmin=0, vmax=1)
         ax.set_title(f"Fire Probability Heatmap - {job_id}")
         ax.axis("off")
         

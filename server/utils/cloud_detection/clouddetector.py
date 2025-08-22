@@ -6,7 +6,7 @@ import torch.nn.functional as F
 from s2cloudless import S2PixelCloudDetector
 ##from unet import UNET, FinalCloudUNet
 
-cloud_detector = S2PixelCloudDetector(threshold=0.5, average_over=4, dilation_size=2, all_bands=True)
+cloud_detector = S2PixelCloudDetector(threshold=0.4, average_over=4, dilation_size=2, all_bands=True)
 
 #model = UNET()
 #test_model = FinalCloudUNet()

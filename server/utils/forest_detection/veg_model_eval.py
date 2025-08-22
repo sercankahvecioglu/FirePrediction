@@ -28,13 +28,8 @@ class SimpleCNN(nn.Module):
 
 # Get the absolute path to the current script's directory
 current_dir = os.path.dirname(os.path.abspath(__file__))
-model_path = os.path.join(current_dir, "..", "trained_models", "WeightsProbe.pth")
-
-# Initialize model variables
-model = None
-device = None
-
-# Load model 
+#model_path = os.path.join(current_dir, "..", "trained_models", "WeightsProbe.pth")
+model_path = os.path.join(current_dir, "..", "trained_models", "FinalHope20KVegNormal.pth")
 
 model = SimpleCNN()
 model.load_state_dict(torch.load(model_path, map_location=torch.device("cpu"), weights_only=False))
@@ -51,7 +46,7 @@ model.eval()
 
 # ---- END INITIALIZATION ----
 
-def vegetation_cnn_detector(image_data, job_id, file_name=None, threshold=0.4):
+def vegetation_cnn_detector(image_data, job_id, file_name=None, threshold=0.25):
     """
     CNN-based vegetation detection using a trained model
     
@@ -65,20 +60,15 @@ def vegetation_cnn_detector(image_data, job_id, file_name=None, threshold=0.4):
         tuple: (success, is_forest, probability)
     """
     
-    # Check if model is available
-    if model is None or device is None:
-        print(f"Warning: CNN model not loaded for {file_name}. Falling back to NDVI detector.")
-        return ndvi_veg_detector(image_data, job_id, file_name)
-    
     try:
         print(f"Processing CNN vegetation detection of {file_name}")
         
         # Extract channels
-        red = image_data[:, :, 3]
-        green = image_data[:, :, 2]
-        blue = image_data[:, :, 1]
-        nir = image_data[:, :, 9]
-        
+        red = image_data[:, :, 3] 
+        green = image_data[:, :, 2] 
+        blue = image_data[:, :, 1] 
+        nir = image_data[:, :, 9] 
+
         # Compute NDVI
         ndvi = (nir - red) / (nir + red + 1e-5)
         
@@ -98,7 +88,7 @@ def vegetation_cnn_detector(image_data, job_id, file_name=None, threshold=0.4):
         
         # Run CNN inference
         with torch.no_grad():
-            logit = model(tensor.to(device))
+            logit = model(tensor)
             prob = torch.sigmoid(logit).item()
             is_forest = prob > threshold
             
@@ -116,7 +106,7 @@ def vegetation_cnn_detector(image_data, job_id, file_name=None, threshold=0.4):
         return False, False, 0.0  
 
 
-def _ndvi_veg_detector(input_folder, ndvi_threshold=0.3, min_veg_percentage=15.0):
+def _ndvi_veg_detector(input_folder, ndvi_threshold=0.3, min_veg_percentage=25.0):
     """
     Filter .npy files using NDVI threshold for vegetation detection
     
@@ -172,7 +162,7 @@ def _ndvi_veg_detector(input_folder, ndvi_threshold=0.3, min_veg_percentage=15.0
     
     return kept_files, removed_files
 
-def ndvi_veg_detector(image_data, job_id, file_name=None, ndvi_threshold=0.3, min_veg_percentage=15.0):
+def ndvi_veg_detector(image_data, job_id, file_name=None, ndvi_threshold=0.3, min_veg_percentage=25.0):
     """
     Filter .npy files using NDVI threshold for vegetation detection
     
