@@ -27,6 +27,17 @@
   background: hsl(var(--card));
   box-shadow: 0 0 0 2px hsl(var(--border)) inset, 0 0 0 0px transparent;
   position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.logo {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 8px;
 }
 
 .logoSlot::after {

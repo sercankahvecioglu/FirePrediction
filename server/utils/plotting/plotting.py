@@ -222,6 +222,7 @@ def create_forest_picture(output_folder, metadata_path, job_id=None, cloud_job_i
                 if is_cloudy:
                     # Black
                     rgb = np.zeros((256, 256, 3), dtype=np.float32)
+                    ndvi = np.zeros((256, 256), dtype=np.float32)
                 elif not is_forest:
                     # Red
                     rgb = np.zeros((256, 256, 3), dtype=np.float32)

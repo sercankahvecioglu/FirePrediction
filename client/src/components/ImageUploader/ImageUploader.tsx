@@ -101,7 +101,7 @@ const ImageUploader = ({ onUpload, onError, processing, progress = 0, progressMe
               className={styles.input}
               aria-label="Choose .npy file"
             />
-            <p className={styles.hint}>Only .npy files are accepted.</p>
+            <p className={styles.hint}>Only .npy and .tiff files are accepted.</p>
           </>
         )}
 
