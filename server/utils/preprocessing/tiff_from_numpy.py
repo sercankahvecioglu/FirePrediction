@@ -225,8 +225,9 @@ if __name__ == "__main__":
     
     
     # 1. Load and process your actual data
-    npy_data = np.load('/home/dario/Desktop/FirePrediction/inputs/chile_tile_(6656, 7168).npy')  # Replace with your file
-    
+    npy_path = '/home/dario/Desktop/FirePrediction/inputs/chile_tile_(6656, 7168).npy'  # Replace with your file
+    npy_data = np.load(npy_path)
+
     with open('/home/dario/Desktop/FirePrediction/data_pkl/chile_pre_tiles_data.pkl', 'rb') as f:  # Replace with your file
         metadata = pickle.load(f)
 
@@ -239,8 +240,15 @@ if __name__ == "__main__":
     print(f"  Center lat: {spatial.get('center_lat', 'N/A')}")
     print(f"  Center lon: {spatial.get('center_lon', 'N/A')}")
 
-    # Call get_real_world_coords for the tile (assuming top-left at (0,0))
-    
+    # Extract coordy and coordx from the npy filename
+    import re, os
+    npy_filename = os.path.basename(npy_path)
+    match = re.search(r'_tile_\((\d+),\s*(\d+)\)', npy_filename)
+    if match:
+        coordy, coordx = int(match.group(1)), int(match.group(2))
+    else:
+        coordy, coordx = 0, 0
+
     tile_shape = npy_data.shape
     if npy_data.ndim == 3:
         tile_size = tile_shape[1:3]
@@ -248,7 +256,7 @@ if __name__ == "__main__":
         tile_size = tile_shape
     else:
         tile_size = (256, 256)  # fallback
-    real_coords = get_real_world_coords(0, 0, metadata=metadata, tile_size=tile_size)
+    real_coords = get_real_world_coords(coordy, coordx, metadata=metadata, tile_size=tile_size)
     print(f"Tile center real-world coordinates: {real_coords}")
 
     print(npy_data.shape)
@@ -263,6 +271,6 @@ if __name__ == "__main__":
         output_path='/home/dario/Desktop/chile_tile_(6656, 7168).tif',
         nodata=0  # Adjust based on your data
     )
-    
+
     # 4. Verify the result
     verify_created_geotiff('/home/dario/Desktop/chile_tile_(6656, 7168).tif')
