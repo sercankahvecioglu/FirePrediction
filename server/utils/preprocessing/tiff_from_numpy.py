@@ -165,25 +165,69 @@ def verify_created_geotiff(geotiff_path):
         print(f"Data type: {sample_data.dtype}")
         print(f"Sample values: {sample_data.flatten()[:5]}")
 
+# Example usage functions
+def create_sample_data():
+    """
+    Create sample data matching your metadata for testing
+    """
+    # Based on your metadata, create sample Sentinel-2 data
+    # Typical Sentinel-2 has multiple spectral bands
+    bands = 12  # Sentinel-2 has 13 bands, using 12 here
+    height, width = 1000, 1000  # Sample dimensions
+    
+    # Create realistic-looking remote sensing data
+    sample_data = np.random.uniform(0, 10000, (bands, height, width)).astype(np.uint16)
+    
+    # Save sample data
+    np.save('sample_sentinel2_data.npy', sample_data)
+    
+    # Create sample metadata (using your format)
+    sample_metadata = {
+        'country_id': 'izmir',
+        'time_period': 'pre',
+        'product_info': {
+            'title': 'S2B_MSIL1C_20250625T085559_N0511_R007_T35SMC_20250625T112531.SAFE',
+            'creation_date': '2014-01-01',
+            'file_path': ''
+        },
+        'spatial_extent': {
+            'west_bound': 25.847248649247085,
+            'east_bound': 27.11247403813807,
+            'south_bound': 37.85395064837389,
+            'north_bound': 38.84894433319432,
+            'center_lat': 38.3514474907841,
+            'center_lon': 26.479861343692576
+        },
+        'temporal_extent': {
+            'start_time': '2025-06-25T09:00:49',
+            'end_time': '2025-06-25T09:13:34'
+        },
+        'technical_specs': {
+            'spatial_resolution': 20,
+            'crs_code': 'http://www.opengis.net/def/crs/EPSG/0/4936',
+            'keywords': ['Orthoimagery', 'Land cover', 'Geographical names', 'data set series', 'processing']
+        },
+        'contact_info': {
+            'organization': 'org_name',
+            'email': 'org_name@org.ext'
+        }
+    }
+    
+    # Save sample metadata
+    with open('sample_metadata.pkl', 'wb') as f:
+        pickle.dump(sample_metadata, f)
+    
+    print("Sample data and metadata created!")
+    return sample_data, sample_metadata
+
 if __name__ == "__main__":
-    import sys
-    if len(sys.argv) != 3:
-        print("Usage: python tiff_from_numpy.py <input_npy_file> <output_tif_file>")
-        sys.exit(1)
-
-    input_npy_file = sys.argv[1]
-    output_tif_file = sys.argv[2]
-
-    # Derive the pickle metadata path from the input file (customize as needed)
-    # Example: replace 'inputs' with 'data_pkl' and '.npy' with '_data.pkl'
-    import os
-    base_name = os.path.basename(input_npy_file)
-    # Example assumes naming like 'chile_tile_(6656, 7168).npy' -> 'chile_pre_tiles_data.pkl'
-    # Adjust this logic as needed for your use case
-    pickle_metadata_path = '/home/dario/Desktop/FirePrediction/data_pkl/chile_pre_tiles_data.pkl'
-
-    npy_data = np.load(input_npy_file)
-    with open(pickle_metadata_path, 'rb') as f:
+    # Example workflow
+    
+    
+    # 1. Load and process your actual data
+    npy_data = np.load('/home/dario/Desktop/FirePrediction/inputs/chile_tile_(6656, 7168).npy')  # Replace with your file
+    
+    with open('/home/dario/Desktop/FirePrediction/data_pkl/chile_pre_tiles_data.pkl', 'rb') as f:  # Replace with your file
         metadata = pickle.load(f)
 
     spatial = metadata['spatial_extent']
@@ -195,6 +239,8 @@ if __name__ == "__main__":
     print(f"  Center lat: {spatial.get('center_lat', 'N/A')}")
     print(f"  Center lon: {spatial.get('center_lon', 'N/A')}")
 
+    # Call get_real_world_coords for the tile (assuming top-left at (0,0))
+    
     tile_shape = npy_data.shape
     if npy_data.ndim == 3:
         tile_size = tile_shape[1:3]
@@ -202,17 +248,21 @@ if __name__ == "__main__":
         tile_size = tile_shape
     else:
         tile_size = (256, 256)  # fallback
+    real_coords = get_real_world_coords(0, 0, metadata=metadata, tile_size=tile_size)
+    print(f"Tile center real-world coordinates: {real_coords}")
 
     print(npy_data.shape)
     # If shape is (height, width, bands), transpose:
     if npy_data.ndim == 3 and npy_data.shape[2] == 15:
         npy_data = npy_data.transpose(2, 0, 1)
 
+    # 3. Create GeoTIFF
     create_geotiff_from_pickle_metadata(
         npy_data=npy_data,
         pickle_metadata=metadata,
-        output_path=output_tif_file,
+        output_path='/home/dario/Desktop/chile_tile_(6656, 7168).tif',
         nodata=0  # Adjust based on your data
     )
-
-    verify_created_geotiff(output_tif_file)
+    
+    # 4. Verify the result
+    verify_created_geotiff('/home/dario/Desktop/chile_tile_(6656, 7168).tif')
