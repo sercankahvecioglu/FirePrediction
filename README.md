@@ -9,4 +9,4 @@ Team Members:
 - Ivana Moskova
 - Lior Mayer ([@LiorM08](https://github.com/LiorM08))
 
-[Here]((https://www.overleaf.com/read/fhdvwbyrwyqb#0657f2)) is provided the full documentation.
+[Here](https://www.overleaf.com/read/fhdvwbyrwyqb#0657f2) is provided the full documentation.
